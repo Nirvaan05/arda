@@ -74,7 +74,7 @@ def discover(herdr):
         if name is None or name in names:
             continue
         places.append(Place(name, 'machine', item.get('label') or item['id'], item.get('session') or 'default',
-                            herdr.at(machine=item['id'])))
+                            herdr.at(machine=item['id'], label=item.get('label') or item['id'])))
         names.add(name)
     return places
 
@@ -105,6 +105,9 @@ def resolve(address, places):
             raise Unresolved(f'no place called {address.place!r} in this Herdr environment (places: {known})')
         if address.name is None:
             return place
+        survey([place])
+        if not place.reachable:
+            raise Unresolved(f'{place.name} is unreachable, so nothing was sent ({place.error})')
         candidates = [place]
     elif address.name is None:
         return current  # a bare pane ID is a route in the caller's own Herdr server

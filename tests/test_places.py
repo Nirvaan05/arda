@@ -81,7 +81,8 @@ class PlacesTests(CliCase):
     def test_unreachable_places_fail_clearly_and_send_nothing(self):
         code, out, _ = self.run_cli('send', '@codex@gpu', '--json', '--', 'hi')
         self.assertEqual((code, json.loads(out)['status']), (1, 'not_delivered'))
-        self.assertIn('unreachable', json.loads(out)['detail'])
+        self.assertIn('gpu is unreachable, so nothing was sent', json.loads(out)['detail'])
+        self.assertIn('saved machine gpu cannot be reached', json.loads(out)['detail'])
         code, out, _ = self.run_cli('send', '@reviewer', '--json', '--', 'hi')
         self.assertIn('(unreachable: gpu)', json.loads(out)['detail'])
         code, out, _ = self.run_cli('send', '@codex@nowhere', '--json', '--', 'hi')
