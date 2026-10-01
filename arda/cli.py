@@ -26,6 +26,16 @@ CONFIRM_MS = 15000
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_UNCERTAIN = 0, 1, 2, 3
 
 
+# Herdr prompt errors raised before any input is written (Herdr 0.9.3
+# queue_agent_prompt), with a hint for the sender.
+NOTHING_SENT = {
+    'agent_blocked': 'the agent is at an approval or question prompt. ',
+    'agent_not_ready': 'Herdr only prompts a recognised agent running in its pane. ',
+    'agent_target_ambiguous': '',
+    'empty_agent_prompt': '',
+}
+
+
 class UsageError(Exception):
     pass
 
@@ -105,12 +115,12 @@ def deliver(herdr, message, force=False, skip_busy=False):
     try:
         herdr.prompt(route, text, confirm_ms=None if busy else CONFIRM_MS)
     except HerdrError as err:
-        # Herdr refuses a blocked agent before writing any input. Past that
-        # point the text may already be in the receiver's terminal.
-        if err.code == 'agent_blocked':
-            return outcome('not_delivered', f'{to} became blocked at a prompt; nothing was sent.', pane)
-        if err.code == 'agent_not_found' and busy:
-            return outcome('not_delivered', f'{to} left the Herdr session before delivery.', pane)
+        # These are raised before Herdr writes anything (and without --wait,
+        # agent_not_found can only come from that phase). Any other error may
+        # follow a write, so the text may already be in the receiver's terminal.
+        if err.code in NOTHING_SENT or (err.code == 'agent_not_found' and busy):
+            hint = NOTHING_SENT.get(err.code, 'the agent left the Herdr session. ')
+            return outcome('not_delivered', f'nothing was sent: {hint}{err.message}', pane)
         reason = ('was not seen starting work' if err.code in ('agent_prompt_stalled', 'timeout')
                   else f'could not be confirmed ({err.code}: {err.message})')
         return outcome('uncertain', f'the message may have been submitted, but {to} {reason}. '

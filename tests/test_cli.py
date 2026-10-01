@@ -94,14 +94,28 @@ class CliTests(unittest.TestCase):
         self.assertEqual((code, json.loads(out)['status']), (3, 'uncertain'))
 
     def test_errors_after_submission_are_uncertain_not_undelivered(self):
-        for error in ('timeout', 'connection_lost', 'agent_not_found'):
+        for error in ('timeout', 'connection_lost', 'agent_not_found', 'agent_not_running', 'agent_prompt_stalled'):
             self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2', prompt_error=error))
             code, out, _ = self.run_cli('result', '@codex', 'abc123', 'done', '--json')
             self.assertEqual((code, json.loads(out)['status']), (3, 'uncertain'), error)
 
-    def test_blocked_at_submission_time_is_not_delivered(self):
-        self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2', prompt_error='agent_blocked'))
+    def test_errors_herdr_raises_before_writing_are_not_delivered(self):
+        for error in ('agent_blocked', 'agent_not_ready', 'agent_target_ambiguous', 'empty_agent_prompt'):
+            self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2', prompt_error=error))
+            code, out, _ = self.run_cli('task', '@codex', 'x', '--json')
+            result = json.loads(out)
+            self.assertEqual((code, result['status']), (1, 'not_delivered'), error)
+            self.assertIn('nothing was sent', result['detail'])
+
+    def test_write_failure_after_queueing_stays_uncertain(self):
+        self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2', prompt_error='agent_prompt_failed'))
         code, out, _ = self.run_cli('task', '@codex', 'x', '--json')
+        self.assertEqual((code, json.loads(out)['status']), (3, 'uncertain'))
+
+    def test_busy_recipient_vanishing_before_the_write_is_not_delivered(self):
+        self.set_agents(agent('claude', 'w1:p1'),
+                        agent('codex', 'w1:p2', status='working', prompt_error='agent_not_found'))
+        code, out, _ = self.run_cli('send', '@codex', 'x', '--json')
         self.assertEqual((code, json.loads(out)['status']), (1, 'not_delivered'))
 
     def test_replies_can_force_an_unclassified_recipient(self):
