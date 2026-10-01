@@ -1,7 +1,9 @@
 """Minimal stand-in for the `herdr` CLI, driven by a JSON state file.
 
 State: {"agents": [{name, agent, agent_status, pane_id, prompt_error?}], "prompts": []}.
-Each accepted `agent prompt` is appended to "prompts", each notification to "notifications".
+Each accepted `agent prompt` is appended to "prompts", each notification to "notifications"
+and every argv to "calls". Optional "error" fails every call with that code; optional
+"raw" is printed verbatim instead of a reply.
 """
 
 import json
@@ -21,8 +23,16 @@ def main(argv):
     path = os.environ['FAKE_HERDR_STATE']
     with open(path) as handle:
         state = json.load(handle)
+    state.setdefault('calls', []).append(argv)
+    with open(path, 'w') as handle:
+        json.dump(state, handle)
     if argv[:1] == ['--session']:
         argv = argv[2:]
+    if state.get('error'):
+        reply(error=state['error'])
+    if 'raw' in state:
+        print(state['raw'])
+        sys.exit(0)
     agents = state['agents']
 
     def find(target):

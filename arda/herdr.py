@@ -25,6 +25,13 @@ def _json(text):
         return None
 
 
+def _field(container, key, kind):
+    value = container.get(key) if isinstance(container, dict) else None
+    if not isinstance(value, kind):
+        raise HerdrError('unexpected_reply', f'herdr reply has no {key!r}: {str(container)[:200]}')
+    return value
+
+
 class Herdr:
     def __init__(self, binary=None, session=None):
         self.binary = binary or os.environ.get('HERDR_BIN_PATH') or 'herdr'
@@ -51,10 +58,15 @@ class Herdr:
         raise HerdrError('herdr_failed', detail)
 
     def agents(self):
-        return self.call('agent', 'list')['agents']
+        agents = _field(self.call('agent', 'list'), 'agents', list)
+        for agent in agents:
+            _field(agent, 'pane_id', str)
+        return agents
 
     def agent(self, target):
-        return self.call('agent', 'get', target)['agent']
+        agent = _field(self.call('agent', 'get', target), 'agent', dict)
+        _field(agent, 'pane_id', str)
+        return agent
 
     def prompt(self, target, text, confirm_ms=None):
         """Submit text to an agent as one prompt.

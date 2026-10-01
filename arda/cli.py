@@ -89,21 +89,23 @@ def deliver(herdr, message, force=False, skip_busy=False):
     if state == 'working' and skip_busy:
         return outcome('not_delivered', f'{to} is busy; skipped so its current work is not interrupted.', pane)
     text = message.render(command())
+    busy = state == 'working'
     try:
-        if state == 'working':
-            herdr.prompt(route, text)
-            return outcome('submitted', f'{to} is busy; its harness hands it the message at its next step.', pane)
-        herdr.prompt(route, text, confirm_ms=CONFIRM_MS)
-        return outcome('delivered', f'{to} received it and started a turn.', pane)
+        herdr.prompt(route, text, confirm_ms=None if busy else CONFIRM_MS)
     except HerdrError as err:
-        if err.code in ('agent_prompt_stalled', 'timeout'):
-            return outcome('uncertain', f'the text was submitted, but {to} was not seen starting work. '
-                                        f'Do not resend blindly; inspect it with: herdr agent read {route}', pane)
+        # Herdr refuses a blocked agent before writing any input. Past that
+        # point the text may already be in the receiver's terminal.
         if err.code == 'agent_blocked':
-            return outcome('not_delivered', f'{to} became blocked at a prompt before delivery.', pane)
-        if err.code == 'agent_not_found':
+            return outcome('not_delivered', f'{to} became blocked at a prompt; nothing was sent.', pane)
+        if err.code == 'agent_not_found' and busy:
             return outcome('not_delivered', f'{to} left the Herdr session before delivery.', pane)
-        raise
+        reason = ('was not seen starting work' if err.code in ('agent_prompt_stalled', 'timeout')
+                  else f'could not be confirmed ({err.code}: {err.message})')
+        return outcome('uncertain', f'the message may have been submitted, but {to} {reason}. '
+                                    f'Do not resend blindly; inspect it with: herdr agent read {route}', pane)
+    if busy:
+        return outcome('submitted', f'{to} is busy; its harness hands it the message at its next step.', pane)
+    return outcome('delivered', f'{to} was seen working after the message was submitted.', pane)
 
 
 def read_body(text, path):
@@ -262,9 +264,8 @@ def parser():
     common.add_argument('--session', help='Herdr session to use from outside Herdr; '
                                           'messages can only be sent from an agent pane')
 
-    def body(sub, required=True):
-        sub.add_argument('text', nargs=None if required else '?',
-                         help='message text, or - to read it from stdin')
+    def body(sub):
+        sub.add_argument('text', nargs='?', help='message text, or - to read it from stdin')
         sub.add_argument('--file', help='read the message text from this file instead')
 
     root = argparse.ArgumentParser(
@@ -276,31 +277,32 @@ def parser():
     commands.add_parser('whoami', parents=[common], help='show your own ARDA address')
     commands.add_parser('peers', parents=[common], help='list the agents in this Herdr session')
 
-    sub = commands.add_parser('send', parents=[common], help='send a note to another agent')
-    sub.add_argument('to', help='recipient, e.g. @codex')
-    body(sub, required=False)
-    sub.add_argument('--force', action='store_true', help='submit even if Herdr cannot classify the recipient')
+    sending = argparse.ArgumentParser(add_help=False, parents=[common])
+    sending.add_argument('--force', action='store_true',
+                         help='submit even if Herdr cannot classify the recipient (state unknown)')
 
-    sub = commands.add_parser('task', parents=[common], help='ask another agent to do work')
+    sub = commands.add_parser('send', parents=[sending], help='send a note to another agent')
     sub.add_argument('to', help='recipient, e.g. @codex')
-    body(sub, required=False)
-    sub.add_argument('--force', action='store_true', help='submit even if Herdr cannot classify the recipient')
+    body(sub)
 
-    sub = commands.add_parser('ack', parents=[common], help='accept a task you were sent')
+    sub = commands.add_parser('task', parents=[sending], help='ask another agent to do work')
+    sub.add_argument('to', help='recipient, e.g. @codex')
+    body(sub)
+
+    sub = commands.add_parser('ack', parents=[sending], help='accept a task you were sent')
     sub.add_argument('to', help='the agent that sent the task')
     sub.add_argument('id', help='id of the task being accepted')
     sub.add_argument('text', nargs='?', help='optional short note')
 
-    sub = commands.add_parser('introduce', parents=[common],
-                              help='tell agents their ARDA address, their peers and how to reach them')
-    sub.add_argument('to', nargs='*', help='agents to introduce (default: every other named agent)')
-    sub.add_argument('--force', action='store_true', help='submit even if Herdr cannot classify an agent')
-
     for name, what in (('result', 'return the result of a task'), ('reject', 'decline or abandon a task')):
-        sub = commands.add_parser(name, parents=[common], help=what)
+        sub = commands.add_parser(name, parents=[sending], help=what)
         sub.add_argument('to', help='the agent that sent the task')
         sub.add_argument('id', help='id of the task being answered')
-        body(sub, required=False)
+        body(sub)
+
+    sub = commands.add_parser('introduce', parents=[sending],
+                              help='tell agents their ARDA address, their peers and how to reach them')
+    sub.add_argument('to', nargs='*', help='agents to introduce (default: every other named agent)')
 
     return root
 
@@ -314,17 +316,22 @@ EXIT_FOR_STATUS = {'delivered': EXIT_OK, 'submitted': EXIT_OK, 'uncertain': EXIT
                    'not_delivered': EXIT_FAILED}
 
 
+def fail(args, code, detail, exit_code):
+    if args.json:
+        print(json.dumps({'status': 'error', 'error': code, 'detail': detail}))
+    print(f'arda: {detail}', file=sys.stderr)
+    return exit_code
+
+
 def main(argv=None):
     args = parser().parse_args(argv)
     herdr = Herdr(session=args.session)
     try:
         data, text = HANDLERS[args.command](herdr, args)
     except (UsageError, ValueError, OSError) as err:
-        print(f'arda: {err}', file=sys.stderr)
-        return EXIT_USAGE
+        return fail(args, 'usage', str(err), EXIT_USAGE)
     except HerdrError as err:
-        print(f'arda: herdr: {err}', file=sys.stderr)
-        return EXIT_FAILED
+        return fail(args, err.code, f'herdr: {err.message}', EXIT_FAILED)
     if args.json or text is None:
         print(json.dumps(data))
     else:

@@ -31,8 +31,8 @@ class CliTests(unittest.TestCase):
                     'HERDR_PANE_ID': 'w1:p1'}
         self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2'))
 
-    def set_agents(self, *agents):
-        self.state_path.write_text(json.dumps({'agents': list(agents), 'prompts': []}))
+    def set_agents(self, *agents, **extra):
+        self.state_path.write_text(json.dumps({'agents': list(agents), 'prompts': [], **extra}))
 
     def prompts(self):
         return json.loads(self.state_path.read_text())['prompts']
@@ -92,6 +92,39 @@ class CliTests(unittest.TestCase):
         self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2', prompt_error='agent_prompt_stalled'))
         code, out, _ = self.run_cli('task', '@codex', 'x', '--json')
         self.assertEqual((code, json.loads(out)['status']), (3, 'uncertain'))
+
+    def test_errors_after_submission_are_uncertain_not_undelivered(self):
+        for error in ('timeout', 'connection_lost', 'agent_not_found'):
+            self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2', prompt_error=error))
+            code, out, _ = self.run_cli('result', '@codex', 'abc123', 'done', '--json')
+            self.assertEqual((code, json.loads(out)['status']), (3, 'uncertain'), error)
+
+    def test_blocked_at_submission_time_is_not_delivered(self):
+        self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2', prompt_error='agent_blocked'))
+        code, out, _ = self.run_cli('task', '@codex', 'x', '--json')
+        self.assertEqual((code, json.loads(out)['status']), (1, 'not_delivered'))
+
+    def test_replies_can_force_an_unclassified_recipient(self):
+        self.set_agents(agent('claude', 'w1:p1', status='unknown'), agent('codex', 'w1:p2'))
+        self.env['HERDR_PANE_ID'] = 'w1:p2'
+        self.assertEqual(self.run_cli('result', '@claude', 'abc123', 'done')[0], 1)
+        self.assertEqual(self.run_cli('result', '@claude', 'abc123', 'done', '--force')[0], 0)
+
+    def test_herdr_failures_are_reported_and_json_stays_json(self):
+        self.set_agents(error='server_not_running')
+        code, out, err = self.run_cli('peers', '--json')
+        self.assertEqual((code, json.loads(out)['error']), (1, 'server_not_running'))
+        self.assertIn('herdr:', err)
+        for raw in ('not json', '{"id": "x", "result": {"type": "agent_info"}}'):
+            self.set_agents(raw=raw)
+            code, out, _ = self.run_cli('whoami', '--json')
+            self.assertEqual(code, 1, raw)
+            self.assertIn(json.loads(out)['error'], ('herdr_failed', 'unexpected_reply'))
+
+    def test_session_option_reaches_herdr(self):
+        self.run_cli('peers', '--session', 'demo')
+        calls = json.loads(self.state_path.read_text())['calls']
+        self.assertEqual(calls[0][:4], ['--session', 'demo', 'agent', 'list'])
 
     def test_missing_recipient_is_not_delivered(self):
         code, out, _ = self.run_cli('send', '@reviewer', 'x', '--json')
