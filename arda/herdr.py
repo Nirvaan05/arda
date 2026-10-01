@@ -13,9 +13,11 @@ _UNREACHABLE = ('remote SSH connection failed', 'remote platform detection faile
                 'failed to connect to remote Herdr API socket', 'Connection refused', 'Could not resolve hostname')
 
 
-# Bound every call, so one machine that hangs cannot stall a send for long. A whole
-# send stays well under the two minutes agent harnesses typically allow a command.
-LOOKUP_TIMEOUT = 15
+# Bound every call, so one machine that hangs cannot stall a send for long. At worst a
+# send makes six lookups (two listings, two identity checks, the survey, the agent) and
+# one prompt: 6 x 10 s + 20 s + the 15 s confirmation, under the two minutes agent
+# harnesses typically allow a command.
+LOOKUP_TIMEOUT = 10
 PROMPT_TIMEOUT = 20
 
 
@@ -62,10 +64,11 @@ class Herdr:
             argv += ['--session', self.session]
         return argv + [str(arg) for arg in args]
 
-    def local_json(self, *args, timeout=30):
+    def local_json(self, *args, timeout=None):
         """Run a client-side command that prints plain JSON (session and machine listings)."""
         try:
-            proc = subprocess.run([self.binary, *args], capture_output=True, text=True, timeout=timeout, check=False)
+            proc = subprocess.run([self.binary, *args], capture_output=True, text=True,
+                                  timeout=timeout or LOOKUP_TIMEOUT, check=False)
         except (FileNotFoundError, subprocess.TimeoutExpired) as err:
             raise HerdrError('herdr_failed', str(err)) from None
         reply = _json(proc.stdout)

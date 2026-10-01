@@ -224,6 +224,31 @@ class CliTests(CliCase):
         inside.write_text('from a temp file')
         self.assertEqual(self.run_cli('send', '@codex', '--file', str(inside))[0], 0)
 
+    def test_file_from_home_or_hidden_paths_is_refused(self):
+        home = Path(self.tmp.name) / 'home'
+        (home / 'project' / '.secrets').mkdir(parents=True)
+        (home / '.bashrc').write_text('x')
+        (home / 'project' / '.env').write_text('x')
+        (home / 'project' / '.secrets' / 'key').write_text('x')
+        (home / 'project' / 'notes.md').write_text('fine')
+        old_cwd = os.getcwd()
+        try:
+            with mock.patch.dict(os.environ, {'HOME': str(home)}):
+                os.chdir(home)  # the home directory never counts as a working directory
+                self.assertEqual(self.run_cli('send', '@codex', '--file', '.bashrc')[0], 2)
+                os.chdir(home / 'project')
+                for hidden in ('.env', '.secrets/key'):
+                    self.assertEqual(self.run_cli('send', '@codex', '--file', hidden)[0], 2, hidden)
+                self.assertEqual(self.run_cli('send', '@codex', '--file', 'notes.md')[0], 0)
+        finally:
+            os.chdir(old_cwd)
+        self.assertEqual([parse(p['text']).body for p in self.prompts()], ['fine'])
+
+    def test_an_odd_reply_after_typing_does_not_crash(self):
+        self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2', null_reply=True))
+        code, out, _ = self.run_cli('send', '@codex', '--json', '--', 'x')
+        self.assertEqual((code, json.loads(out)['status']), (0, 'delivered'))
+
     def test_peers_survives_a_stale_pane_variable(self):
         self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2'), stale_panes=['w1:p1'])
         code, out, _ = self.run_cli('peers', '--json')

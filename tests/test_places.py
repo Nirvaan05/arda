@@ -156,3 +156,14 @@ class PlacesTests(CliCase):
         self.assertEqual((code, result['status']), (1, 'not_delivered'))
         self.assertEqual([(r['to'], r['status']) for r in result['results']],
                          [('@nobody', 'not_delivered'), ('@codex@desktop', 'delivered')])
+
+    def test_place_names_stay_unique_and_do_not_depend_on_what_is_running(self):
+        clash = {'m0': {'label': 'other-x'}, 'm1': {'label': 'Other'}, 'm2': {'label': 'other'}}
+        self.environment(machines=clash)
+        running = {p['place'] for p in json.loads(self.run_cli('peers', '--json')[1])['places']}
+        self.assertEqual(len(running), 5)  # main, other (session) and three machines
+        stopped = sessions('main', 'other')
+        stopped[1]['running'] = False
+        self.environment(machines=clash, sessions=stopped)
+        places = json.loads(self.run_cli('peers', '--json')[1])['places']
+        self.assertEqual({p['place'] for p in places} | {'other'}, running)

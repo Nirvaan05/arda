@@ -44,9 +44,10 @@ def _label(text, taken, fallback):
     base = re.sub(r'[^a-z0-9._-]+', '-', (text or '').strip().lower()).strip('-._')[:40] or 'place'
     if not base[0].isalnum():
         base = 'p' + base
-    name = base
-    if name in taken:
-        name = f'{base}-{hashlib.sha1(fallback.encode()).hexdigest()[:6]}'
+    name, salt = base, 0
+    while name in taken:
+        name = f'{base}-{hashlib.sha1(f"{fallback}/{salt}".encode()).hexdigest()[:6]}'
+        salt += 1
     taken.add(name)
     return name
 
@@ -72,24 +73,37 @@ def discover(herdr):
     else:
         current = next((item for item in sessions if item.get('default')), None)
     current_name = (current or {}).get('name')
-    places = [Place(_label(current_name or 'here', taken, current_name or 'here'), 'session', host,
-                    current_name or '?', herdr, current=True)]
+    try:
+        machines = herdr.local_json('machine', 'list', '--json')
+    except HerdrError:
+        machines = []
+    machines = [item for item in machines if isinstance(item, dict) and item.get('id')] \
+        if isinstance(machines, list) else []
+    # Name every known session and machine first, in a fixed order, so a place keeps its
+    # name whichever of them happen to be running or enabled.
+    names = {}
+    if current_name is None:
+        names[('session', None)] = _label('here', taken, 'here')
+    for item in sessions:
+        if item.get('name'):
+            names[('session', item['name'])] = _label(item['name'], taken, item['name'])
+    if current_name is not None and ('session', current_name) not in names:
+        names[('session', current_name)] = _label(current_name, taken, current_name)
+    for item in machines:
+        names[('machine', item['id'])] = _label(item.get('label') or item['id'], taken, item['id'])
+    places = [Place(names[('session', current_name)], 'session', host, current_name or '?', herdr, current=True)]
     for item in sessions:
         if item is current or not item.get('running') or not item.get('name'):
             continue
         if item.get('name') == current_name or _same_socket(item.get('socket_path'), socket_path):
             continue  # the caller's own server, however it is reached
-        places.append(Place(_label(item['name'], taken, item['name']), 'session', host, item['name'],
+        places.append(Place(names[('session', item['name'])], 'session', host, item['name'],
                             herdr.at(session=item['name'])))
-    try:
-        machines = herdr.local_json('machine', 'list', '--json')
-    except HerdrError:
-        machines = []
-    for item in machines if isinstance(machines, list) else []:
-        if not item.get('enabled', True) or not item.get('id'):
+    for item in machines:
+        if not item.get('enabled', True):
             continue
         label = item.get('label') or item['id']
-        places.append(Place(_label(label, taken, item['id']), 'machine', label, item.get('session') or 'default',
+        places.append(Place(names[('machine', item['id'])], 'machine', label, item.get('session') or 'default',
                             herdr.at(machine=item['id'], label=label)))
     return places
 

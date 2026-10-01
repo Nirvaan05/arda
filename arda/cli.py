@@ -178,25 +178,36 @@ def deliver(place, route, message, force=False, skip_busy=False, fp=None):
     if busy:
         return outcome(message, 'submitted', f'{to} is busy; its harness hands it the message at its next step.',
                        place, pane)
-    if (reply or {}).get('agent', {}).get('agent_status') == 'blocked':
+    after = reply.get('agent') if isinstance(reply, dict) else None
+    if isinstance(after, dict) and after.get('agent_status') == 'blocked':
         return outcome(message, 'delivered', f'{to} reacted to the message and is now waiting at an approval or '
                                              'question prompt.', place, pane)
     return outcome(message, 'delivered', f'{to} was seen working after the message was submitted.', place, pane)
 
 
 def allowed_file(path):
-    """A --file must be in the working directory or the temporary directory.
+    """A --file must be a visible file in the working directory or the temporary directory.
 
     Agents may run arda without a per-command prompt once the user approved
     ARDA, so --file must not become a way to send any readable file (keys,
-    credentials) to a peer without the harness seeing it read.
+    credentials, dotfiles) to a peer without the harness seeing it read. The
+    home directory, / and their ancestors never count as a working directory.
     """
+    home = os.path.realpath(os.path.expanduser('~'))
+
+    def usable(root):
+        return root != '/' and not (home + '/').startswith(root.rstrip('/') + '/')
+
+    roots = [root for root in dict.fromkeys(os.path.realpath(p) for p in (os.getcwd(), '/tmp', tempfile.gettempdir()))
+             if usable(root)]
     real = os.path.realpath(path)
-    roots = [os.path.realpath(os.getcwd()), os.path.realpath(tempfile.gettempdir())]
-    if not any(real == root or real.startswith(root.rstrip('/') + '/') for root in roots):
-        raise UsageError(f'--file must be in the working directory or {roots[1]}; '
-                         'copy the content there, or pass it as text')
-    return real
+    for root in roots:
+        if real.startswith(root.rstrip('/') + '/'):
+            if any(part.startswith('.') for part in os.path.relpath(real, root).split('/')):
+                raise UsageError('--file cannot be a hidden file or inside a hidden directory')
+            return real
+    raise UsageError(f'--file must be in the working directory (not your home directory) or in /tmp: {path}; '
+                     'copy the content there, or pass it as text')
 
 
 def read_body(text, path):

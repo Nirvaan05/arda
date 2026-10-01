@@ -101,6 +101,8 @@ def main(argv):
             reply(error=agent['prompt_error'])
         state['prompts'].append({'place': place, 'target': argv[2], 'text': argv[3], 'options': argv[4:]})
         save(path, state)
+        if agent.get('null_reply'):
+            reply({'type': 'agent_prompted', 'agent': None})
         reply({'type': 'agent_prompted', 'agent': {**agent, 'agent_status': agent.get('after_prompt', 'working')}})
     print(f'fake herdr: unsupported {argv}', file=sys.stderr)
     sys.exit(2)
