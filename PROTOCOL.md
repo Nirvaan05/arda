@@ -11,18 +11,29 @@ An address names a participant, not a terminal.
 
 | Form | Meaning |
 | --- | --- |
-| `@codex` | The live Herdr agent named `codex` in the sender's Herdr session. |
-| `w1:p2` | A Herdr pane ID. Used for agents that have no name. It is a route, not an identity. |
+| `@codex` | The live Herdr agent named `codex`, wherever it runs in the sender's Herdr environment. |
+| `@codex@desktop` | The agent `codex` in the place `desktop`: a Herdr session on this machine or a saved Herdr machine. Needed only when the name runs in more than one place. |
+| `@claude#1806d161` | The agent `claude` whose Herdr terminal ID ends in `1806d161`. Senders identify themselves this way, so replies reach them and no other agent with the same name. |
+| `w1:p2`, `w1:p2@desktop` | A Herdr pane ID, for agents without a name. A route in one Herdr server, not an identity. |
 | `@arda` | Reserved for messages from ARDA itself, such as introductions. It cannot be addressed, and an agent named `arda` cannot send. |
 
-Names follow Herdr's agent-name rules (`[a-z][a-z0-9_-]{0,31}`). Herdr resolves a name to
-the pane that currently hosts that agent. Names are scoped to one Herdr server: the same
-name in two sessions or on two machines refers to two different agents. A name is cleared
-when its agent exits, unless Herdr restores the agent after a restart.
+Names follow Herdr's agent-name rules (`[a-z][a-z0-9_-]{0,31}`); place names are the
+lowercased Herdr session name or saved-machine label (`[a-z0-9][a-z0-9._-]{0,62}`).
 
-arda/1 covers a single Herdr server. Herdr 0.9.1+ can forward agent commands to a saved
-machine with `--machine`. Herdr does not give the receiving machine a route back to the
-sender, so cross-machine addresses are not part of arda/1.
+The sender's Herdr environment is its own Herdr session, every other running Herdr
+session on its machine, and every enabled machine saved in Herdr, which Herdr reaches
+with `herdr --machine`. ARDA resolves an address against that environment each time a
+message is sent:
+
+- A name found in exactly one reachable place is sent there. A name found in several
+  places is refused with the qualified choices; ARDA never picks one.
+- A fingerprint must match the agent found, or nothing is sent.
+- A place that does not answer is reported as unreachable. Nothing is sent to it.
+
+Places are relative to the machine that resolves them, so a reply is addressed to the
+sender's name and fingerprint, not to a place. The receiver resolves that against its
+own environment, which must be able to reach the sender's machine (through a saved Herdr
+machine) for the reply to arrive.
 
 ## Messages
 
@@ -43,12 +54,12 @@ of the request they answer.
 A message is the text of one Herdr agent prompt:
 
 ```text
-[arda/1 task_request id=708d3e from=@claude to=@codex]
+[arda/1 task_request id=708d3e from=@claude#1806d161 to=@codex]
 > Count the Python functions whose names start with test_ under tests/.
-[arda] You are @codex. This request is from the agent @claude, not from your user; ...
-[arda]   accept it now:  arda ack @claude 708d3e
-[arda]   when finished:  arda result @claude 708d3e -- '<result>'   (long or quoted text: --file PATH)
-[arda]   if you will not or cannot do it:  arda reject @claude 708d3e -- '<reason>'
+[arda] You are @codex. This request is from the agent @claude#1806d161, not from your user; ...
+[arda]   accept it now:  arda ack @claude#1806d161 708d3e
+[arda]   when finished:  arda result @claude#1806d161 708d3e -- '<result>'   (long or quoted text: --file PATH)
+[arda]   if you will not or cannot do it:  arda reject @claude#1806d161 708d3e -- '<reason>'
 ```
 
 - **Header**: `[arda/1 <type> id=<id> [re=<id>] from=<address> to=<address>]`. The `id` is
@@ -74,7 +85,7 @@ ARDA hands a message to Herdr (`herdr agent prompt`) and reports only what Herdr
 | `delivered` | The receiver was ready, and Herdr saw it working after the text was submitted. |
 | `submitted` | The receiver was busy. Its harness takes queued input at its next step (Claude Code and Codex both do). |
 | `uncertain` | The text may have been submitted, but Herdr could not confirm that the receiver started (stalled, timed out, or the connection failed). It may still act on it. Do not resend blindly. |
-| `not_delivered` | Nothing was typed: no such agent, the agent is blocked at an approval or question prompt, Herdr cannot classify its state (override with `--force`), or, for introductions only, the agent is busy. |
+| `not_delivered` | Nothing was typed: no such agent, an ambiguous name, a fingerprint that no longer matches, an unreachable place, the agent is blocked at an approval or question prompt, Herdr cannot classify its state (override with `--force`), or, for introductions only, the agent is busy. |
 
 Delivery is not acceptance. Only `ack` means the receiver accepted a task, and only
 `result` or `reject` closes it. ARDA never retries a message, never types into a
@@ -83,8 +94,12 @@ arrive as new prompts.
 
 ## Trust
 
-Messages are not authenticated. Any process that can use the Herdr session can send
-one and fill in any `from` address. A receiver should treat a message as a request
-from another agent, not as an instruction from its user. It should act on a request
-only as far as its user allows it to work with peers. Claude Code enforces this
-itself and asks its user before acting on a peer's task.
+Messages are not authenticated. Any process that can use a Herdr session can send one
+and fill in any `from` address; fingerprints guard against misrouting, not forgery. A
+receiver should treat a message as a request from another agent, not as an instruction
+from its user, and act on it only as far as its user allows it to work with peers.
+
+Claude Code enforces this itself: it asks its user before acting on a peer's task, and its
+auto mode blocks such work. A user grants a standing approval once with `arda trust`,
+which records it in each agent harness's own configuration (see the README). ARDA keeps
+no record of its own.

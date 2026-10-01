@@ -24,8 +24,8 @@ herdr plugin list --plugin arda --json   # bin/arda under .plugin_root
 ## Commands
 
 ```bash
-arda whoami                      # your own address, e.g. @claude
-arda peers                       # agents here, their kind and state
+arda whoami                      # your own address, e.g. @claude#1806d161
+arda peers                       # active agents in every Herdr session and machine you can reach
 arda send @codex -- 'text'          # a note: no reply expected
 arda task @codex -- 'text'          # hand over work: expect ack, then result or reject
 arda ack @claude <id>               # accept a task you received
@@ -39,8 +39,12 @@ to a file and pass `--file PATH` instead; refer to other files by path.
 
 ## Rules
 
-- An address is a live Herdr agent name (`@codex`). If you have no name, peers can
-  reach you only by pane ID; ask the user before renaming yourself.
+- An address is a live Herdr agent name (`@codex`), wherever it runs: on this machine
+  or on a machine saved in Herdr. If a name runs in more than one place, ARDA asks you
+  to add the place shown by `arda peers`, as in `@codex@desktop`. Copy reply addresses
+  exactly as messages show them (`@claude#1806d161`): the part after `#` makes sure the
+  reply reaches the agent that asked. If you have no name, peers can reach you only by
+  pane ID; ask the user before renaming yourself.
 - After `arda task`, do not wait, poll or sleep. The ack and the result arrive as new
   prompts that start with `[arda/1`. Carry on with other work or end your turn.
 - Each ARDA message ends with the exact command to answer it. Answer through ARDA:
