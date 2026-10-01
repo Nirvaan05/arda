@@ -49,6 +49,9 @@ def main(argv):
         machine = state.get('machines', {}).get(argv[1])
         if machine is None:
             reply(error='machine_not_found')
+        if machine.get('hang'):
+            import time
+            time.sleep(machine['hang'])
         if machine.get('down'):
             print(f'ssh: connect to host {argv[1]}: Connection refused', file=sys.stderr)
             sys.exit(255)

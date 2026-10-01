@@ -7,15 +7,15 @@ for local sessions and `herdr --machine ID` for saved machines. ARDA keeps no
 list of its own; it asks Herdr every time.
 """
 
+import hashlib
 import os
 import re
 import socket
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
+from .envelope import Address, fingerprint
 from .herdr import Herdr, HerdrError
-
-_LABEL = re.compile(r'[a-z0-9][a-z0-9._-]{0,62}')
 
 
 @dataclass
@@ -34,33 +34,52 @@ class Place:
         return self.error is None
 
 
-def _label(text):
-    text = (text or '').strip().lower()
-    return text if _LABEL.fullmatch(text) else None
+def _label(text, taken, fallback):
+    """An address-safe, unique place name for a Herdr session name or machine label.
+
+    Names that are not valid place names are rewritten, and a name that is
+    already taken gets a short suffix from `fallback`, so no place is ever dropped.
+    """
+    base = re.sub(r'[^a-z0-9._-]+', '-', (text or '').strip().lower()).strip('-._')[:40] or 'place'
+    if not base[0].isalnum():
+        base = 'p' + base
+    name = base
+    if name in taken:
+        name = f'{base}-{hashlib.sha1(fallback.encode()).hexdigest()[:6]}'
+    taken.add(name)
+    return name
+
+
+def _same_socket(a, b):
+    return bool(a and b) and os.path.realpath(a) == os.path.realpath(b)
 
 
 def discover(herdr):
     """The places of the caller's Herdr environment, current one first."""
     socket_path = os.environ.get('HERDR_SOCKET_PATH')
     host = socket.gethostname()
-    places, names = [], set()
+    taken = set()
     try:
         sessions = herdr.local_json('session', 'list', '--json').get('sessions', [])
     except (HerdrError, AttributeError):
         sessions = []
-    current_name = herdr.session
-    for item in [] if herdr.session else sessions:
-        if socket_path and item.get('socket_path') == socket_path:
-            current_name = item['name']
-    if current_name is None and not herdr.session and not socket_path:
-        current_name = next((item['name'] for item in sessions if item.get('default')), 'default')
-    places.append(Place(_label(current_name) or 'here', 'session', host, current_name or '?', herdr, current=True))
-    names.add(places[0].name)
+    current = None
+    if herdr.session:
+        current = next((item for item in sessions if item.get('name') == herdr.session), {'name': herdr.session})
+    elif socket_path:
+        current = next((item for item in sessions if _same_socket(item.get('socket_path'), socket_path)), None)
+    else:
+        current = next((item for item in sessions if item.get('default')), None)
+    current_name = (current or {}).get('name')
+    places = [Place(_label(current_name or 'here', taken, current_name or 'here'), 'session', host,
+                    current_name or '?', herdr, current=True)]
     for item in sessions:
-        name = _label(item.get('name'))
-        if item.get('running') and name and item.get('name') != current_name and name not in names:
-            places.append(Place(name, 'session', host, item['name'], herdr.at(session=item['name'])))
-            names.add(name)
+        if item is current or not item.get('running') or not item.get('name'):
+            continue
+        if item.get('name') == current_name or _same_socket(item.get('socket_path'), socket_path):
+            continue  # the caller's own server, however it is reached
+        places.append(Place(_label(item['name'], taken, item['name']), 'session', host, item['name'],
+                            herdr.at(session=item['name'])))
     try:
         machines = herdr.local_json('machine', 'list', '--json')
     except HerdrError:
@@ -68,14 +87,9 @@ def discover(herdr):
     for item in machines if isinstance(machines, list) else []:
         if not item.get('enabled', True) or not item.get('id'):
             continue
-        name = _label(item.get('label'))
-        if name is None or name in names:
-            name = _label(item['id'])
-        if name is None or name in names:
-            continue
-        places.append(Place(name, 'machine', item.get('label') or item['id'], item.get('session') or 'default',
-                            herdr.at(machine=item['id'], label=item.get('label') or item['id'])))
-        names.add(name)
+        label = item.get('label') or item['id']
+        places.append(Place(_label(label, taken, item['id']), 'machine', label, item.get('session') or 'default',
+                            herdr.at(machine=item['id'], label=label)))
     return places
 
 
@@ -116,7 +130,6 @@ def resolve(address, places):
     survey([p for p in candidates if not p.agents and p.error is None])
     matches = [(p, a) for p in candidates for a in p.agents if a.get('name') == address.name]
     if address.fingerprint:
-        from .envelope import fingerprint
         matches = [(p, a) for p, a in matches if fingerprint(a.get('terminal_id')) == address.fingerprint]
     unreachable = [p.name for p in candidates if not p.reachable]
     if not matches:
@@ -128,6 +141,6 @@ def resolve(address, places):
             detail += f' (unreachable: {", ".join(unreachable)})'
         raise Unresolved(detail)
     if len(matches) > 1:
-        options = ', '.join(f'@{address.name}@{p.name}' for p, _ in matches)
+        options = ', '.join(str(Address(address.name, p.name, address.fingerprint)) for p, _ in matches)
         raise Unresolved(f'@{address.name} is ambiguous in this Herdr environment; use one of: {options}')
     return matches[0][0]

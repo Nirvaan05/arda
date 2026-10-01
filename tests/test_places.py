@@ -1,4 +1,6 @@
 import json
+import time
+from unittest import mock
 
 from test_cli import CliCase, agent
 
@@ -97,3 +99,35 @@ class PlacesTests(CliCase):
         body = parse(self.prompts()[-1]['text']).body
         self.assertIn('You are @codex.', body)
         self.assertIn('@tester (claude on ', body)
+
+    def test_places_with_clashing_or_invalid_names_are_never_dropped(self):
+        self.environment(sessions=sessions('main', 'Other', 'other', 'my work'),
+                         session_agents={name: [agent('codex', 'w1:p1')] for name in ('Other', 'other', 'my work')},
+                         machines={})
+        places = json.loads(self.run_cli('peers', '--json')[1])['places']
+        names = [p['place'] for p in places]
+        self.assertEqual(len(names), 4)
+        self.assertEqual(len(set(names)), 4)
+        self.assertIn('my-work', names)
+        code, out, _ = self.run_cli('send', '@codex', '--json', '--', 'hi')
+        self.assertEqual((code, json.loads(out)['status'], self.prompts()), (1, 'not_delivered', []))
+        self.assertEqual(json.loads(out)['detail'].count('@codex@'), 3)
+
+    def test_the_callers_own_session_is_recognised_however_its_socket_is_written(self):
+        self.env['HERDR_SOCKET_PATH'] = '/s/./main.sock'
+        places = [p['place'] for p in json.loads(self.run_cli('peers', '--json')[1])['places']]
+        self.assertEqual(places.count('main'), 1)
+        self.assertEqual(self.run_cli('send', '@helper', '--', 'hi')[0], 0)
+
+    def test_disabled_machines_are_not_part_of_the_environment(self):
+        self.environment(machines={'d1': {'label': 'desktop', 'enabled': False, 'agents': [agent('codex', 'w1:p1')]}})
+        places = [p['place'] for p in json.loads(self.run_cli('peers', '--json')[1])['places']]
+        self.assertNotIn('desktop', places)
+
+    def test_a_hung_machine_cannot_stall_a_send_for_long(self):
+        self.environment(machines={'h1': {'label': 'slow', 'hang': 30, 'agents': []}})
+        started = time.time()
+        with mock.patch('arda.herdr.LOOKUP_TIMEOUT', 1):
+            code, out, _ = self.run_cli('send', '@helper', '--json', '--', 'hi')
+        self.assertLess(time.time() - started, 10)
+        self.assertEqual((code, json.loads(out)['status']), (0, 'delivered'))

@@ -13,6 +13,12 @@ _UNREACHABLE = ('remote SSH connection failed', 'remote platform detection faile
                 'failed to connect to remote Herdr API socket', 'Connection refused', 'Could not resolve hostname')
 
 
+# Bound every call, so one machine that hangs cannot stall a send for long. A whole
+# send stays well under the two minutes agent harnesses typically allow a command.
+LOOKUP_TIMEOUT = 15
+PROMPT_TIMEOUT = 20
+
+
 class HerdrError(Exception):
     """A Herdr request failed. `code` is Herdr's error code when it gave one."""
 
@@ -91,18 +97,18 @@ class Herdr:
         raise HerdrError('herdr_failed', detail)
 
     def agents(self):
-        agents = _field(self.call('agent', 'list'), 'agents', list)
+        agents = _field(self.call('agent', 'list', timeout=LOOKUP_TIMEOUT), 'agents', list)
         for agent in agents:
             _field(agent, 'pane_id', str)
         return agents
 
     def agent(self, target):
-        agent = _field(self.call('agent', 'get', target), 'agent', dict)
+        agent = _field(self.call('agent', 'get', target, timeout=LOOKUP_TIMEOUT), 'agent', dict)
         _field(agent, 'pane_id', str)
         return agent
 
     def pane_shell_pid(self, pane):
-        info = _field(self.call('pane', 'process-info', '--pane', pane), 'process_info', dict)
+        info = _field(self.call('pane', 'process-info', '--pane', pane, timeout=LOOKUP_TIMEOUT), 'process_info', dict)
         return _field(info, 'shell_pid', int)
 
     def prompt(self, target, text, confirm_ms=None):
@@ -113,7 +119,7 @@ class Herdr:
         Herdr offers short of the receiver replying.
         """
         args = ['agent', 'prompt', target, text]
-        timeout = 60
+        timeout = PROMPT_TIMEOUT
         if confirm_ms:
             args += ['--wait', '--until', 'working', '--until', 'blocked', '--timeout', confirm_ms]
             timeout += confirm_ms / 1000
