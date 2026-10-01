@@ -19,10 +19,18 @@ MAX_BODY = 32000
 _NAME = re.compile(r'^[a-z][a-z0-9_-]{0,31}$')
 _PANE = re.compile(r'^w\d+:p\d+$')
 _HEADER = re.compile(r'^\[arda/1 (?P<type>[a-z_]+)(?P<fields>(?: [a-z]+=\S+)*)\]$')
+# Herdr types prompts into a terminal (inside bracketed paste when the agent
+# enables it), so a body must not carry escape sequences or other controls.
+_CONTROL = re.compile(r'[\x00-\x08\x0b-\x1f\x7f-\x9f]')
 
 
 class AddressError(ValueError):
     pass
+
+
+def clean(text):
+    """Drop terminal control characters, keeping newlines and tabs."""
+    return _CONTROL.sub('', text.replace('\r\n', '\n'))
 
 
 def new_id():
@@ -67,7 +75,7 @@ class Message:
         return f'[{PROTOCOL} {self.type} {" ".join(fields)}]'
 
     def render(self, command='arda'):
-        lines = [self.header(), self.body.strip()]
+        lines = [self.header(), clean(self.body).strip()]
         lines += [FOOTER + line for line in _footer(self, command)]
         return '\n'.join(lines)
 

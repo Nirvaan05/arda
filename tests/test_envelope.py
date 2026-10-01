@@ -34,6 +34,12 @@ class EnvelopeTests(unittest.TestCase):
         message = Message(type='note', sender='@a', recipient='@b', body=body)
         self.assertEqual(parse(message.render()).body, body)
 
+    def test_terminal_control_sequences_are_removed(self):
+        body = 'ok\r\nnext\x1b[201~\x07\tend\x9b'
+        rendered = Message(type='note', sender='@a', recipient='@b', body=body).render()
+        self.assertEqual(parse(rendered).body, 'ok\nnext[201~\tend')
+        self.assertNotIn('\x1b', rendered)
+
     def test_non_arda_text_is_not_parsed(self):
         self.assertIsNone(parse('hello'))
         self.assertIsNone(parse('[arda/1 gossip id=1 from=@a to=@b]\nx'))
