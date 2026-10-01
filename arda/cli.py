@@ -137,10 +137,12 @@ def read_body(text, path):
         text = Path(path).read_text()
     elif text == '-':
         text = sys.stdin.read()
-    if not text or not clean(text).strip():
+    text = clean(text or '').strip()
+    if not text:
         raise UsageError('message text is empty')
-    if len(text) > MAX_BODY:
-        raise UsageError(f'message is {len(text)} characters; the limit is {MAX_BODY}. '
+    size = len(text.encode())
+    if size > MAX_BODY:
+        raise UsageError(f'message is {size} bytes; the limit is {MAX_BODY}. '
                          'Write it to a file and send the file path instead.')
     return text
 

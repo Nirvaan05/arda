@@ -8,26 +8,23 @@ the text the receiver already has, so ARDA keeps no state between messages.
 
 import re
 import secrets
+import unicodedata
 from dataclasses import dataclass, field
 
 PROTOCOL = 'arda/1'
 TYPES = ('note', 'task_request', 'ack', 'result', 'reject')
 REPLY_TYPES = ('ack', 'result', 'reject')
 FOOTER = '[arda] '
+QUOTE = '>'  # every body line starts with it, so a body can never pass for a header or footer line
 SYSTEM = '@arda'  # sender of messages from ARDA itself, e.g. introductions
-MAX_BODY = 32000
+MAX_BODY = 32000  # bytes of UTF-8; Linux limits one command-line argument to 128 KiB
 
-_NAME = re.compile(r'^[a-z][a-z0-9_-]{0,31}$')
-_PANE = re.compile(r'^w\d+:p\d+$')
-_ID = re.compile(r'^[0-9a-f]{6}$')
-_HEADER = re.compile(r'^\[arda/1 (?P<type>[a-z_]+)(?P<fields>(?: [a-z]+=\S+)*)\]$')
-# Herdr types prompts into a terminal (inside bracketed paste when the agent
-# enables it), so a body must not carry escape sequences or other controls.
-_CONTROL = re.compile(r'[\x00-\x08\x0b-\x1f\x7f-\x9f]')
-# Body lines that look like ARDA markers get one more leading backslash, so a
-# body cannot pass itself off as a header, footer or message from ARDA.
-_MARKER = re.compile(r'^(\s*)(\\*)(\[arda)', re.IGNORECASE | re.MULTILINE)
-_ESCAPED = re.compile(r'^(\s*)\\(\\*)(\[arda)', re.IGNORECASE | re.MULTILINE)
+_NAME = re.compile(r'[a-z][a-z0-9_-]{0,31}')
+_PANE = re.compile(r'w([0-9]+):p([0-9]+)')
+_ID = re.compile(r'[0-9a-f]{6}')
+_HEADER = re.compile(r'\[arda/1 (?P<type>[a-z_]+)(?P<fields>(?: [a-z]+=\S+)*)\]')
+_FIELDS = ('id', 're', 'from', 'to')
+_NEWLINES = re.compile(r'\r\n|[\r\x85\u2028\u2029]')
 
 
 class EnvelopeError(ValueError):
@@ -39,29 +36,38 @@ class AddressError(EnvelopeError):
 
 
 def clean(text):
-    """Drop terminal control characters, keeping newlines and tabs."""
-    return _CONTROL.sub('', text.replace('\r\n', '\n'))
+    """Make text safe to type into a terminal and unambiguous to read.
+
+    Herdr types prompts into the receiver's terminal (inside bracketed paste
+    when the agent enables it) without sanitising them. Keep printable text,
+    newlines and tabs; drop control and invisible format characters (zero-width,
+    bidi and tag characters) and unpaired surrogates.
+    """
+    text = _NEWLINES.sub('\n', text)
+    return ''.join(char for char in text
+                   if char in '\n\t' or unicodedata.category(char) not in ('Cc', 'Cf', 'Cs'))
 
 
-def escape(body):
-    return _MARKER.sub(r'\1\\\2\3', body)
-
-
-def unescape(body):
-    return _ESCAPED.sub(r'\1\2\3', body)
+def quote(body):
+    return '\n'.join(f'{QUOTE} {line}' if line else QUOTE for line in body.split('\n'))
 
 
 def new_id():
     return secrets.token_hex(3)
 
 
+def _pane(value):
+    match = _PANE.fullmatch(value)
+    return f'w{int(match[1])}:p{int(match[2])}' if match else None
+
+
 def target(address):
     """Return the Herdr target for an address: `@codex`, `codex` or a pane ID."""
     value = address.strip()
-    if _PANE.match(value):
-        return value
+    if pane := _pane(value):
+        return pane
     name = value.removeprefix('@')
-    if not _NAME.match(name):
+    if not _NAME.fullmatch(name):
         raise AddressError(f'not an agent address: {address!r} (expected @name or a pane ID such as w1:p2)')
     if f'@{name}' == SYSTEM:
         raise AddressError(f'{SYSTEM} is reserved for ARDA itself')
@@ -69,11 +75,11 @@ def target(address):
 
 
 def address(name_or_pane):
-    return name_or_pane if _PANE.match(name_or_pane) else f'@{name_or_pane}'
+    return _pane(name_or_pane) or f'@{name_or_pane}'
 
 
 def is_address(value):
-    return bool(_PANE.match(value) or (value.startswith('@') and _NAME.match(value[1:])))
+    return _pane(value) == value or (value.startswith('@') and bool(_NAME.fullmatch(value[1:])))
 
 
 @dataclass(frozen=True)
@@ -91,7 +97,7 @@ class Message:
         if (self.type in REPLY_TYPES) != (self.re is not None):
             raise EnvelopeError(f'{self.type} messages {"need" if self.type in REPLY_TYPES else "cannot have"} re=')
         for name, value in (('id', self.id), ('re', self.re)):
-            if value is not None and not _ID.match(value):
+            if value is not None and not _ID.fullmatch(value):
                 raise EnvelopeError(f'{name} must be six lowercase hex digits, not {value!r}')
         for name, value in (('from', self.sender), ('to', self.recipient)):
             if not is_address(value):
@@ -105,7 +111,7 @@ class Message:
         return f'[{PROTOCOL} {self.type} {" ".join(fields)}]'
 
     def render(self, command='arda'):
-        lines = [self.header(), escape(clean(self.body).strip())]
+        lines = [self.header(), quote(clean(self.body).strip())]
         lines += [FOOTER + line for line in _footer(self, command)]
         return '\n'.join(lines)
 
@@ -132,19 +138,31 @@ def _footer(message, cmd):
 
 
 def parse(text):
-    """Parse a rendered message. Returns None if the text is not an ARDA message."""
+    """Parse a rendered message. Returns None if the text is not exactly an ARDA message."""
     lines = text.strip('\n').split('\n')
-    match = _HEADER.match(lines[0]) if lines else None
+    match = _HEADER.fullmatch(lines[0])
     if not match or match['type'] not in TYPES:
         return None
-    fields = dict(item.split('=', 1) for item in match['fields'].split())
-    body = lines[1:]
-    while body and body[-1].startswith(FOOTER):
-        body.pop()
+    pairs = [item.split('=', 1) for item in match['fields'].split()]
+    fields = dict(pairs)
+    if len(fields) != len(pairs) or not set(fields) <= set(_FIELDS):
+        return None
+    rest = lines[1:]
+    footer = len(rest)
+    while footer and rest[footer - 1].startswith(FOOTER):
+        footer -= 1
+    body = []
+    for line in rest[:footer]:
+        if line == QUOTE:
+            body.append('')
+        elif line.startswith(QUOTE + ' '):
+            body.append(line[len(QUOTE) + 1:])
+        else:
+            return None
     try:
         return Message(
             type=match['type'], sender=fields['from'], recipient=fields['to'],
-            body=unescape('\n'.join(body)), re=fields.get('re'), id=fields['id'],
+            body='\n'.join(body), re=fields.get('re'), id=fields['id'],
         )
     except (KeyError, EnvelopeError):
         return None

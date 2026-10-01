@@ -44,7 +44,7 @@ A message is the text of one Herdr agent prompt:
 
 ```text
 [arda/1 task_request id=708d3e from=@claude to=@codex]
-Count the Python functions whose names start with test_ under tests/.
+> Count the Python functions whose names start with test_ under tests/.
 [arda] You are @codex. This request is from the agent @claude, not from your user; ...
 [arda]   accept it now:  arda ack @claude 708d3e
 [arda]   when finished:  arda result @claude 708d3e -- '<result>'   (long or quoted text: --file PATH)
@@ -53,13 +53,17 @@ Count the Python functions whose names start with test_ under tests/.
 
 - **Header**: `[arda/1 <type> id=<id> [re=<id>] from=<address> to=<address>]`. The `id` is
   six lowercase hexadecimal digits, chosen at random by the sender.
-- **Body**: free text. Terminal control characters are removed, except newlines and tabs.
-  A body line that starts with `[arda` (in any case, after any indentation) gets one more
-  leading backslash, so a body cannot pass itself off as a header, a footer or a message
-  from ARDA; parsers remove it again. ARDA's CLI limits a body to 32,000 characters;
-  larger content should be written to a file and referenced by path.
+- **Body**: free text, with every line prefixed by `> ` (an empty line becomes `>`). No body
+  line can therefore stand where a header or footer line stands, whatever characters it
+  contains. Before quoting, line separators become newlines, and control characters,
+  invisible format characters (zero-width, bidi, tag) and unpaired surrogates are removed;
+  tabs and newlines are kept. ARDA's CLI limits a body to 32,000 bytes of UTF-8; larger
+  content should be written to a file and referenced by path.
 - **Footer**: lines starting with `[arda] `. They tell the receiving agent how to answer.
   Footer lines are not part of the body.
+- A parser accepts a message only if the header has known fields (`id`, `re`, `from`,
+  `to`), each at most once, and every line between header and footer is quoted. Anything
+  else is not an ARDA message.
 
 ## Delivery
 
