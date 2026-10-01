@@ -208,6 +208,27 @@ class CliTests(CliCase):
         self.assertEqual(self.run_cli('result', '@claude', '--force', 'abc123', '--json', '--', 'three')[0], 0)
         self.assertEqual([parse(p['text']).body for p in self.prompts()], ['one', 'two', 'three'])
 
+    def test_a_receiver_that_goes_straight_to_a_prompt_is_reported(self):
+        self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2', after_prompt='blocked'))
+        code, out, _ = self.run_cli('task', '@codex', '--json', '--', 'x')
+        result = json.loads(out)
+        self.assertEqual((code, result['status']), (0, 'delivered'))
+        self.assertIn('now waiting at an approval or question prompt', result['detail'])
+
+    def test_file_must_be_in_the_working_directory_or_temp(self):
+        outside = Path.home() / '.arda-test-should-not-exist'
+        code, _, err = self.run_cli('send', '@codex', '--file', str(outside))
+        self.assertEqual((code, self.prompts()), (2, []))
+        self.assertIn('--file must be in the working directory', err)
+        inside = Path(self.tmp.name) / 'note.md'  # the system temporary directory
+        inside.write_text('from a temp file')
+        self.assertEqual(self.run_cli('send', '@codex', '--file', str(inside))[0], 0)
+
+    def test_peers_survives_a_stale_pane_variable(self):
+        self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2'), stale_panes=['w1:p1'])
+        code, out, _ = self.run_cli('peers', '--json')
+        self.assertEqual((code, [p['you'] for p in json.loads(out)['peers']]), (0, [False, False]))
+
     def test_plain_shell_pane_can_send_notes_but_not_tasks(self):
         self.env['HERDR_PANE_ID'] = 'w1:p9'  # a pane with no agent in it
         self.assertIn('no agent runs in this pane', self.run_cli('whoami')[1])

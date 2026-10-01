@@ -28,6 +28,7 @@ class Place:
     current: bool = False
     agents: list = field(default_factory=list)
     error: str | None = None
+    failure: HerdrError | None = None
 
     @property
     def reachable(self):
@@ -99,7 +100,7 @@ def survey(places):
         try:
             place.agents = place.herdr.agents()
         except HerdrError as err:
-            place.agents, place.error = [], f'{err.code}: {err.message}'
+            place.agents, place.error, place.failure = [], f'{err.code}: {err.message}', err
     with ThreadPoolExecutor(max_workers=max(1, len(places))) as pool:
         list(pool.map(ask, places))
     return places

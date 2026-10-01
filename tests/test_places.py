@@ -131,3 +131,28 @@ class PlacesTests(CliCase):
             code, out, _ = self.run_cli('send', '@helper', '--json', '--', 'hi')
         self.assertLess(time.time() - started, 10)
         self.assertEqual((code, json.loads(out)['status']), (0, 'delivered'))
+
+    def test_an_unnamed_agent_cannot_message_another_place(self):
+        self.environment()
+        self.set_agents(agent(None, 'w1:p2', kind='claude'), agent('helper', 'w1:p3'),
+                        sessions=sessions('main', 'other'), session_agents={'other': [agent('tester', 'w1:p2')]},
+                        machines={})
+        self.env['HERDR_PANE_ID'] = 'w1:p2'
+        code, _, err = self.run_cli('send', '@tester', '--', 'hi')
+        self.assertEqual((code, self.prompts()), (2, []))
+        self.assertIn('herdr agent rename w1:p2', err)
+        self.assertEqual(self.run_cli('send', '@helper', '--', 'same place is fine')[0], 0)
+
+    def test_fingerprinted_delivery_types_into_the_verified_pane(self):
+        self.env['HERDR_PANE_ID'] = 'w1:p2'
+        self.run_cli('result', '@claude.aaaa1111', 'abc123', '--', 'done')
+        self.assertEqual(self.prompts()[-1]['target'], 'w1:p1')
+        self.run_cli('send', '@claude', '--', 'by name')
+        self.assertEqual(self.prompts()[-1]['target'], 'claude')
+
+    def test_introduce_reports_unresolved_and_repeated_targets(self):
+        code, out, _ = self.run_cli('introduce', '@nobody', '@codex', '@codex', '--json')
+        result = json.loads(out)
+        self.assertEqual((code, result['status']), (1, 'not_delivered'))
+        self.assertEqual([(r['to'], r['status']) for r in result['results']],
+                         [('@nobody', 'not_delivered'), ('@codex@desktop', 'delivered')])

@@ -6,6 +6,7 @@ import os
 import shlex
 import shutil
 import sys
+import tempfile
 from collections import Counter
 from pathlib import Path
 
@@ -161,7 +162,8 @@ def deliver(place, route, message, force=False, skip_busy=False, fp=None):
     text = message.render(command() if place.kind == 'session' else 'arda')
     busy = state == 'working'
     try:
-        herdr.prompt(route, text, confirm_ms=None if busy else CONFIRM_MS)
+        # With a fingerprint, type into the pane that was just verified, not whatever now holds the name.
+        reply = herdr.prompt(pane if fp and pane else route, text, confirm_ms=None if busy else CONFIRM_MS)
     except HerdrError as err:
         # These are raised before Herdr writes anything (and without --wait,
         # agent_not_found can only come from that phase). Any other error may
@@ -176,14 +178,32 @@ def deliver(place, route, message, force=False, skip_busy=False, fp=None):
     if busy:
         return outcome(message, 'submitted', f'{to} is busy; its harness hands it the message at its next step.',
                        place, pane)
+    if (reply or {}).get('agent', {}).get('agent_status') == 'blocked':
+        return outcome(message, 'delivered', f'{to} reacted to the message and is now waiting at an approval or '
+                                             'question prompt.', place, pane)
     return outcome(message, 'delivered', f'{to} was seen working after the message was submitted.', place, pane)
+
+
+def allowed_file(path):
+    """A --file must be in the working directory or the temporary directory.
+
+    Agents may run arda without a per-command prompt once the user approved
+    ARDA, so --file must not become a way to send any readable file (keys,
+    credentials) to a peer without the harness seeing it read.
+    """
+    real = os.path.realpath(path)
+    roots = [os.path.realpath(os.getcwd()), os.path.realpath(tempfile.gettempdir())]
+    if not any(real == root or real.startswith(root.rstrip('/') + '/') for root in roots):
+        raise UsageError(f'--file must be in the working directory or {roots[1]}; '
+                         'copy the content there, or pass it as text')
+    return real
 
 
 def read_body(text, path):
     if path and text:
         raise UsageError('give the message text or --file, not both')
     if path:
-        text = Path(path).read_text()
+        text = Path(allowed_file(path)).read_text()
     elif text == '-':
         text = sys.stdin.read()
     text = clean(text or '').strip()
@@ -211,6 +231,10 @@ def send(herdr, args, kind, re=None):
         return outcome(message, 'not_delivered', str(err))
     if place.current and to.route in (me['name'], me['pane_id']):
         raise UsageError('cannot send an ARDA message to yourself')
+    if not place.current and not me['name']:
+        raise UsageError('you have no Herdr agent name, and a pane ID means nothing in another place, so '
+                         f'{place.name} could not reply; name this agent first (herdr agent rename '
+                         f'{me["pane_id"]} <name>)')
     return deliver(place, to.route, message, force=getattr(args, 'force', False), fp=to.fingerprint)
 
 
@@ -244,9 +268,11 @@ def environment(herdr):
     """Every reachable agent in the caller's Herdr environment, with how to address it."""
     try:
         me = identity(herdr)
-    except UsageError:
+    except (UsageError, HerdrError):
         me = None  # listing peers does not need to know who is asking
     places = survey(discover(herdr))
+    if places[0].failure:
+        raise places[0].failure  # the caller's own Herdr server cannot be reached
     counts = Counter(agent.get('name') for place in places for agent in place.agents if agent.get('name'))
     peers = []
     for place in places:
@@ -323,20 +349,23 @@ def cmd_introduce(herdr, args):
         if not args.to:
             lines.append(f'skipped {peer["pane_id"]}@{peer["place"]} ({peer["agent"] or "?"}): {reason}. '
                          f'Name it with: herdr agent rename {peer["pane_id"]} <name>')
+    unresolved = []
     if args.to:
         recipients = []
-        for text in args.to:
+        for text in dict.fromkeys(args.to):
             to = parse_address(text)
             try:
                 place = resolve(to, places)
             except Unresolved as err:
+                unresolved.append({'status': 'not_delivered', 'type': 'note', 'to': str(to), 'detail': str(err)})
                 lines.append(f'not_delivered: {to}: {err}')
                 continue
-            recipients.append((place, to.route))
+            if (place.name, to.route) not in [(p.name, r) for p, r in recipients]:
+                recipients.append((place, to.route))
     else:
         by_name = {place.name: place for place in places}
         recipients = [(by_name[peer['place']], peer['name']) for peer in named if not peer['you']]
-    results = []
+    results = unresolved
     for place, name in recipients:
         if place.current and me and name in (me['name'], me['pane_id']):
             continue
