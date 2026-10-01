@@ -30,9 +30,9 @@ Its ack and its result (or reject) will arrive here as ARDA messages; you do not
 ```
 
 Codex receives a prompt that starts with
-`[arda/1 task_request id=708d3e from=@claude#1806d161 to=@codex]` and ends with the
-commands to answer it. Codex runs `arda ack @claude#1806d161 708d3e`, does the work, then
-runs `arda result @claude#1806d161 708d3e -- '18'`. Each answer arrives in Claude's
+`[arda/1 task_request id=708d3e from=@claude.1806d161 to=@codex]` and ends with the
+commands to answer it. Codex runs `arda ack @claude.1806d161 708d3e`, does the work, then
+runs `arda result @claude.1806d161 708d3e -- '18'`. Each answer arrives in Claude's
 session as a new prompt, and Claude carries on from it. See [PROTOCOL.md](PROTOCOL.md)
 for the message format and delivery rules.
 
@@ -56,7 +56,7 @@ gpu: saved machine gpu, Herdr session default: unreachable (machine_unreachable:
   the same name runs in two places, ARDA refuses to guess and lists the choices, such as
   `@codex@desktop` and `@codex@main`.
 - A reply goes to the sender's name plus a fingerprint of its Herdr terminal
-  (`@claude#1806d161`). The route is looked up again when the reply is sent, and the
+  (`@claude.1806d161`). The route is looked up again when the reply is sent, and the
   fingerprint makes sure it reaches the agent that asked, not another agent that happens
   to have the same name.
 - A pane ID such as `w1:p2` is a route in one Herdr server, not an identity.

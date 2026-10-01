@@ -23,7 +23,9 @@ _NAME = re.compile(r'[a-z][a-z0-9_-]{0,31}')
 _PANE = re.compile(r'w([0-9]+):p([0-9]+)')
 _PLACE = re.compile(r'[a-z0-9][a-z0-9._-]{0,62}')
 _FINGERPRINT = re.compile(r'[0-9a-f]{8}')
-_ADDRESS = re.compile(r'(?P<route>@[^@#\s]+|w[0-9]+:p[0-9]+)(?:#(?P<fp>[^@\s]+))?(?:@(?P<place>\S+))?')
+# The fingerprint separator is "." rather than "#": an unquoted "#" stops Codex from matching the
+# command against its execpolicy rules, so replies would fall back to its sandbox.
+_ADDRESS = re.compile(r'(?P<route>@[^@.\s]+|w[0-9]+:p[0-9]+)(?:\.(?P<fp>[^@\s]+))?(?:@(?P<place>\S+))?')
 _ID = re.compile(r'[0-9a-f]{6}')
 _HEADER = re.compile(r'\[arda/1 (?P<type>[a-z_]+)(?P<fields>(?: [a-z]+=\S+)*)\]')
 _FIELDS = ('id', 're', 'from', 'to')
@@ -70,7 +72,7 @@ class Address:
 
     `@codex` names an agent; ARDA finds where it lives across the Herdr
     environment. `@codex@desktop` names the place (a Herdr session or saved
-    machine) when the name alone is ambiguous. `@codex#5806d161` adds a
+    machine) when the name alone is ambiguous. `@codex.5806d161` adds a
     fingerprint of the agent's Herdr terminal, so a reply reaches the agent
     that sent the message and never another one that merely has its name.
     A pane ID such as `w1:p2` is a route in one Herdr server, not an identity.
@@ -86,12 +88,12 @@ class Address:
     def __str__(self):
         text = self.route if self.name is None else f'@{self.route}'
         if self.fingerprint:
-            text += f'#{self.fingerprint}'
+            text += f'.{self.fingerprint}'
         return f'{text}@{self.place}' if self.place else text
 
 
 def parse_address(text):
-    """Parse an address such as `@codex`, `codex`, `@codex@desktop`, `@codex#5806d161` or `w1:p2`."""
+    """Parse an address such as `@codex`, `codex`, `@codex@desktop`, `@codex.5806d161` or `w1:p2`."""
     value = text.strip()
     if value and value[0] != '@' and not _PANE.match(value):
         value = '@' + value

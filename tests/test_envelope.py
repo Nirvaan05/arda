@@ -1,6 +1,7 @@
+import re
 import unittest
 
-from arda.envelope import AddressError, Message, clean, parse, target
+from arda.envelope import AddressError, Message, clean, parse, parse_address, target
 
 
 class EnvelopeTests(unittest.TestCase):
@@ -74,6 +75,24 @@ class EnvelopeTests(unittest.TestCase):
                     good.replace(']', '] '),
                     'x\n' + good):
             self.assertIsNone(parse(bad), bad)
+
+    def test_reply_commands_are_plain_words(self):
+        # Codex matches a command against its execpolicy rules only if it parses into plain
+        # words; an unquoted "#", "$", "~" and the like send it back into the sandbox.
+        message = Message(type='task_request', sender='@claude.1806d161', recipient='@codex', body='x', id='abc123')
+        commands = [line.split(':  ', 1)[1].split('   (')[0] for line in message.render('/opt/a/bin/arda').split('\n')
+                    if ':  ' in line]
+        self.assertEqual(len(commands), 3)
+        for command in commands:
+            self.assertFalse(set(re.sub(r"'[^']*'", '', command)) & set('$`~*?[{#\\;&|<>()'), command)
+
+    def test_fingerprinted_and_placed_addresses(self):
+        self.assertEqual(str(parse_address('@claude.1806d161@gpu.lab')), '@claude.1806d161@gpu.lab')
+        self.assertEqual(parse_address('@claude.1806d161').fingerprint, '1806d161')
+        self.assertEqual(parse_address('@codex@gpu.lab').place, 'gpu.lab')
+        for bad in ('@claude#1806d161', '@claude.xyz', 'w1:p2.1806d161', '@claude.1806d161@'):
+            with self.assertRaises(AddressError):
+                parse_address(bad)
 
     def test_non_arda_text_is_not_parsed(self):
         self.assertIsNone(parse('hello'))

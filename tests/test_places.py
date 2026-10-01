@@ -49,8 +49,8 @@ class PlacesTests(CliCase):
         [prompt] = self.prompts()
         self.assertEqual((prompt['place'], prompt['target']), ('d1', 'codex'))
         message = parse(prompt['text'])
-        self.assertEqual((message.sender, message.recipient), ('@claude#aaaa1111', '@codex'))
-        self.assertIn('arda ack @claude#aaaa1111 ', prompt['text'])  # another machine: its own arda
+        self.assertEqual((message.sender, message.recipient), ('@claude.aaaa1111', '@codex'))
+        self.assertIn('arda ack @claude.aaaa1111 ', prompt['text'])  # another machine: its own arda
         self.run_cli('send', '@tester', '--', 'hi')
         self.assertEqual(self.prompts()[-1]['place'], 'other')
 
@@ -69,11 +69,11 @@ class PlacesTests(CliCase):
         twin = agent('claude', 'w1:p1', terminal_id='term_00002222bbbb')
         self.environment(machines={'d1': {'label': 'desktop', 'agents': [twin, agent('codex', 'w1:p2')]}})
         self.env['HERDR_PANE_ID'] = 'w1:p2'  # @helper replies to the claude in its own session
-        self.assertEqual(self.run_cli('result', '@claude#aaaa1111', 'abc123', '--', 'done')[0], 0)
+        self.assertEqual(self.run_cli('result', '@claude.aaaa1111', 'abc123', '--', 'done')[0], 0)
         self.assertEqual(self.prompts()[-1]['place'], 'current')
-        self.assertEqual(self.run_cli('result', '@claude#2222bbbb', 'abc123', '--', 'done')[0], 0)
+        self.assertEqual(self.run_cli('result', '@claude.2222bbbb', 'abc123', '--', 'done')[0], 0)
         self.assertEqual(self.prompts()[-1]['place'], 'd1')
-        code, out, _ = self.run_cli('result', '@claude#99999999', 'abc123', '--json', '--', 'done')
+        code, out, _ = self.run_cli('result', '@claude.99999999', 'abc123', '--json', '--', 'done')
         self.assertEqual((code, json.loads(out)['status']), (1, 'not_delivered'))
         self.assertIn('the agent that sent the message is gone', json.loads(out)['detail'])
         self.assertEqual(len(self.prompts()), 2)
