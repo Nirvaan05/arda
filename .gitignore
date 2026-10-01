@@ -1,0 +1,8 @@
+# Private development material, including research, plans, notes and experiments.
+.arda/
+
+# Generated Python and tool caches.
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.pytest_cache/
