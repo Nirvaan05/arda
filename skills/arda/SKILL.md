@@ -26,15 +26,16 @@ herdr plugin list --plugin arda --json   # bin/arda under .plugin_root
 ```bash
 arda whoami                      # your own address, e.g. @claude
 arda peers                       # agents here, their kind and state
-arda send @codex "text"          # a note: no reply expected
-arda task @codex "text"          # hand over work: expect ack, then result or reject
-arda ack @claude <id>            # accept a task you received
-arda result @claude <id> "text"  # return the outcome of that task
-arda reject @claude <id> "why"   # decline it, or report that it failed
+arda send @codex -- 'text'          # a note: no reply expected
+arda task @codex -- 'text'          # hand over work: expect ack, then result or reject
+arda ack @claude <id>               # accept a task you received
+arda result @claude <id> -- 'text'  # return the outcome of that task
+arda reject @claude <id> -- 'why'   # decline it, or report that it failed
 ```
 
-Pass `--file PATH` (or `-` to read stdin) instead of the text for long content, and
-refer to files by path where the receiver can read them.
+Always put `--` before the text and single quotes around it, so the text can never be
+read as an option or expanded by the shell. For long text, or text with quotes, write it
+to a file and pass `--file PATH` instead; refer to other files by path.
 
 ## Rules
 

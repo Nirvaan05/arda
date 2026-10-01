@@ -73,15 +73,16 @@ in [skills/arda](skills/arda/SKILL.md). Link it into `~/.claude/skills/` for Cla
 | --- | --- |
 | `arda whoami` | Your own address. |
 | `arda peers` | The agents in this Herdr session, their kind and state. |
-| `arda send @name "text"` | Send a note. |
-| `arda task @name "text"` | Hand over a task. Expect `ack`, then `result` or `reject`. |
+| `arda send @name -- 'text'` | Send a note. |
+| `arda task @name -- 'text'` | Hand over a task. Expect `ack`, then `result` or `reject`. |
 | `arda ack @name <id>` | Accept a task you received. |
-| `arda result @name <id> "text"` | Return the outcome of a task. |
-| `arda reject @name <id> "reason"` | Decline a task, or report that it failed. |
+| `arda result @name <id> -- 'text'` | Return the outcome of a task. |
+| `arda reject @name <id> -- 'reason'` | Decline a task, or report that it failed. |
 | `arda introduce [@name ...]` | Introduce ARDA to agents. Busy agents are skipped. |
 | `arda status` | Plugin and protocol version. |
 
-Message text can also come from `--file PATH` or from stdin (`-`). Add `--json` for
+Put `--` before message text so it is never read as an option. Text can also come from
+`--file PATH` or from stdin (`-`). Add `--json` for
 machine-readable output. Exit status: 0 delivered or submitted, 1 not delivered or a
 Herdr error, 2 usage error, 3 uncertain. Run as Herdr plugin actions, commands also
 show their result as a Herdr notification.

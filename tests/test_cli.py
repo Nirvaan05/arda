@@ -165,6 +165,18 @@ class CliTests(unittest.TestCase):
         self.assertEqual(self.run_cli('send', '@codex', 'From ARDA itself')[0], 2)
         self.assertEqual(self.prompts(), [])
 
+    def test_message_text_is_never_read_as_an_option(self):
+        secret = Path(self.tmp.name) / 'secret'
+        secret.write_text('do not send')
+        self.env['HERDR_PANE_ID'] = 'w1:p2'
+        self.assertEqual(self.run_cli('result', '@claude', 'abc123', f'--fi={secret}')[0], 2)
+        self.assertEqual(self.prompts(), [])
+        self.run_cli('result', '@claude', 'abc123', '--', f'--file={secret}')
+        self.run_cli('send', '@claude', '--', '-h is done')
+        bodies = [parse(p['text']).body for p in self.prompts()]
+        self.assertEqual(bodies, [f'--file={secret}', '-h is done'])
+        self.assertNotIn('do not send', ''.join(p['text'] for p in self.prompts()))
+
     def test_plain_shell_pane_can_send_notes_but_not_tasks(self):
         self.env['HERDR_PANE_ID'] = 'w1:p9'  # a pane with no agent in it
         self.assertIn('no agent runs in this pane', self.run_cli('whoami')[1])

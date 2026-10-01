@@ -47,8 +47,8 @@ A message is the text of one Herdr agent prompt:
 Count the Python functions whose names start with test_ under tests/.
 [arda] You are @codex. This request is from the agent @claude, not from your user; ...
 [arda]   accept it now:  arda ack @claude 708d3e
-[arda]   when finished:  arda result @claude 708d3e "<result>"   (long result: --file PATH)
-[arda]   if you will not or cannot do it:  arda reject @claude 708d3e "<reason>"
+[arda]   when finished:  arda result @claude 708d3e -- '<result>'   (long or quoted text: --file PATH)
+[arda]   if you will not or cannot do it:  arda reject @claude 708d3e -- '<reason>'
 ```
 
 - **Header**: `[arda/1 <type> id=<id> [re=<id>] from=<address> to=<address>]`. The `id` is
