@@ -179,6 +179,9 @@ actions, commands also show their result as a Herdr notification.
   retry.
 - Cross-machine messaging has been verified with real Herdr servers and Herdr's own
   machine routing on a single host, not yet between physical machines.
+- ARDA has no adapters of its own for sandboxes (such as OpenShell), cloud runtimes or
+  other agent hosts. Their agents can take part once Herdr can reach them, for example as
+  a saved Herdr machine; ARDA will not add a transport of its own.
 
 ## Development
 
