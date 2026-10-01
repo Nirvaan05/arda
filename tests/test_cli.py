@@ -46,7 +46,10 @@ class CliTests(unittest.TestCase):
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             for key in unset:
                 os.environ.pop(key, None)
-            code = main(list(argv))
+            try:
+                code = main(list(argv))
+            except SystemExit as exit_:  # argparse rejects the command line
+                code = exit_.code
         return code, out.getvalue(), err.getvalue()
 
     def test_whoami_and_peers(self):
