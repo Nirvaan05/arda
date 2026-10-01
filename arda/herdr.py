@@ -55,6 +55,10 @@ class Herdr:
         if proc.returncode == 0 and isinstance(reply, dict) and 'result' in reply:
             return reply['result']
         detail = (proc.stderr or proc.stdout).strip() or f'exit status {proc.returncode}'
+        if 'Operation not permitted' in detail or 'PermissionDenied' in detail:
+            raise HerdrError('socket_denied', 'the Herdr socket cannot be reached from here ("Operation not '
+                             'permitted"); the agent\'s sandbox probably blocks it. Ask the user to let arda run '
+                             'outside the sandbox (see `arda trust`).')
         raise HerdrError('herdr_failed', detail)
 
     def agents(self):
