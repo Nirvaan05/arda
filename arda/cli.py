@@ -388,36 +388,46 @@ def cmd_introduce(herdr, args):
 
 
 def _under_herdr():
-    """Whether a Herdr server is among this process's ancestors (true in every Herdr pane)."""
+    """The pid of a Herdr server among this process's ancestors (every Herdr pane has one), or None."""
     pid = _parent(os.getpid())
     while pid > 1:
         try:
             with open(f'/proc/{pid}/comm') as handle:
                 if handle.read().strip() == 'herdr':
-                    return True
+                    return pid
         except OSError:
-            return False
+            return None
         pid = _parent(pid)
-    return False
+    return None
 
 
 def refuse_agents(herdr):
-    """Only the user may grant trust: refuse when called by an agent, or when that cannot be ruled out.
+    """Refuse `arda trust` when an agent may be calling it.
 
-    The check uses the caller's own Herdr server whatever --session says, and
-    does not rely on environment variables alone: an agent could unset them.
+    Best effort: it checks the caller's own Herdr server whatever --session
+    says, using that server's real executable rather than HERDR_BIN_PATH, and
+    does not trust HERDR_PANE_ID without process ancestry. A process that
+    detaches from its pane can still get past it, so the rules `arda trust`
+    installs also forbid agents to run it, and the harness enforces those.
     """
     pane = os.environ.get('HERDR_PANE_ID')
-    if not pane and not _under_herdr():
+    server = _under_herdr()
+    if not pane and not server:
         return  # a terminal outside Herdr
     if not pane:
         raise UsageError('this runs inside a Herdr pane that does not identify itself, so it may be an agent; '
                          'run arda trust yourself in a terminal')
-    local = Herdr(binary=herdr.binary)
+    binary = herdr.binary
+    if type(server) is int:
+        try:
+            binary = os.readlink(f'/proc/{server}/exe')
+        except OSError:
+            pass
+    local = Herdr(binary=binary)
     try:
         if not runs_in_pane(local, pane):
-            raise UsageError(f'this is not running in the pane HERDR_PANE_ID names ({pane}); '
-                             'run arda trust yourself in a terminal')
+            raise UsageError(f'this is not running in the pane HERDR_PANE_ID names ({pane}); if this is your own '
+                             'terminal, run: env -u HERDR_PANE_ID arda trust')
         local.agent(pane)
     except HerdrError as err:
         if err.code == 'agent_not_found':

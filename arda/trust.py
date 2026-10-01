@@ -138,7 +138,7 @@ def status(script):
         path = step['path']
         if 'content' in step:
             text = _text(path)
-            state = 'not installed' if OWNED not in text else 'installed' if text == step['content'] else OUTDATED
+            state = 'not installed' if not _owned(text, step['content']) else 'installed' if text == step['content'] else OUTDATED
         elif 'block' in step:
             span = _block(path)
             state = ('not installed' if not span
@@ -182,13 +182,15 @@ def apply(script, revoke=False):
         path = step['path']
         if 'rules' in step:
             loaded[path] = _settings(path)
-        elif 'content' in step and path.exists() and OWNED not in _text(path):
+        elif 'content' in step and path.exists() and not _owned(_text(path), step['content']):
             raise TrustError(f'{path} exists and was not written by arda trust; not changing it')
         elif 'block' in step:
             _block(path)
-        if 'content' in step and step['harness'] == 'codex' and not revoke:
-            _check_codex_rules(step['content'], script)
     done = []
+    for step in steps:
+        checkable = 'content' in step and step['harness'] == 'codex' and not revoke
+        if checkable and not _check_codex_rules(step['content'], script):
+            done.append('could not check the Codex rules: codex is not on PATH here')
     for step in steps:
         path = step['path']
         if 'content' in step:
@@ -196,63 +198,82 @@ def apply(script, revoke=False):
                 if path.exists():
                     path.unlink()
                     done.append(f'removed {path}')
-                    if not any(path.parent.iterdir()):
-                        path.parent.rmdir()  # the rules directory arda trust created, now empty
             elif _text(path) != step['content']:
-                path.parent.mkdir(parents=True, exist_ok=True)
                 _write(path, step['content'])
                 done.append(f'wrote {path}')
             continue
         if 'block' in step:
-            text = _text(path)
-            span = _block(path)
-            if span:  # take the section out, touching only the blank lines where it was
-                before, after = text[:span[0]].rstrip('\n'), text[span[1]:].lstrip('\n')
-                text_without = before + ('\n\n' if before and after else '') + after
-                text_without += '\n' if text_without and not text_without.endswith('\n') else ''
-            else:
-                text_without = text
-            if revoke:
-                new = text_without
-            else:
-                new = (text_without.rstrip('\n') + '\n\n' if text_without.strip() else '') + step['block']
-            if new != text:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                _write(path, new)
+            new = _without_block(path) if revoke else _with_block(path, step['block'])
+            if new != _text(path):
+                if revoke and not new.strip():
+                    path.unlink()  # nothing but ARDA's section was in it
+                else:
+                    _write(path, new)
                 done.append(f'{"removed the ARDA section from" if revoke else "added the ARDA section to"} {path}')
             continue
         settings = loaded[path]
-        permissions = settings.setdefault('permissions', {})
+        permissions = settings.setdefault('permissions', {}) if not revoke else settings.get('permissions', {})
         changed = []
         for kind, rules in step['rules'].items():
-            current = permissions.setdefault(kind, [])
+            current = permissions.get(kind, [])
             if revoke:
                 kept = [rule for rule in current if rule not in rules]
                 if len(kept) != len(current):
                     changed.append(kind)
-                if kept:
-                    permissions[kind] = kept
-                else:
-                    del permissions[kind]
+                    if kept:
+                        permissions[kind] = kept
+                    else:
+                        del permissions[kind]  # only lists that ARDA's rules alone filled
             else:
                 missing = [rule for rule in rules if rule not in current]
                 if missing:
-                    current.extend(missing)
+                    permissions[kind] = current + missing
                     changed.append(kind)
-        if revoke and not permissions:
-            del settings['permissions']  # an empty permissions object means the same as none
+        if revoke and changed and not permissions:
+            del settings['permissions']
         if changed:
-            _write(path, json.dumps(settings, indent=2) + '\n')
+            _write(path, json.dumps(settings, indent=2, ensure_ascii=False) + '\n')
             verb = 'removed ARDA rules from' if revoke else 'added ARDA rules to'
             done.append(f'{verb} permissions.{"/".join(changed)} in {path}')
     return done
 
 
+def _owned(text, content):
+    """Whether a file is one arda trust wrote: it starts with ARDA's header and says so."""
+    return text.split('\n', 1)[0].strip() == content.split('\n', 1)[0].strip() and OWNED in text
+
+
 def _text(path):
     try:
-        return path.read_text()
+        with open(path, newline='') as handle:  # keep the user's line endings
+            return handle.read()
     except FileNotFoundError:
         return ''
+
+
+def _with_block(path, block):
+    """The file with ARDA's section appended after one blank line, in the file's own line endings."""
+    text = _text(path)
+    if _block(path):
+        text = _without_block(path)
+    newline = '\r\n' if '\r\n' in text else '\n'
+    block = block.replace('\n', newline)
+    if not text:
+        return block
+    return text + (newline if text.endswith(newline) else newline * 2) + block
+
+
+def _without_block(path):
+    """The file without ARDA's section and the blank line arda trust put before it."""
+    text = _text(path)
+    span = _block(path)
+    if not span:
+        return text
+    newline = '\r\n' if '\r\n' in text else '\n'
+    before, after = text[:span[0]], text[span[1]:]
+    if not after and before.endswith(newline * 2):
+        before = before[:-len(newline)]
+    return before + after
 
 
 def _block(path):
@@ -286,11 +307,13 @@ def _settings(path):
 
 
 def _write(path, text):
-    """Replace a file's contents atomically, writing through a symlink and keeping its mode."""
-    real = path.resolve() if path.exists() else path
+    """Replace a file's contents atomically, writing through symlinks (even dangling ones) and keeping its mode."""
+    real = Path(os.path.realpath(path))
+    real.parent.mkdir(parents=True, exist_ok=True)
     mode = real.stat().st_mode & 0o777 if real.exists() else 0o600
     tmp = real.with_name(real.name + '.arda-tmp')
-    tmp.write_text(text)
+    with open(tmp, 'w', newline='') as handle:
+        handle.write(text)
     os.chmod(tmp, mode)
     tmp.replace(real)
 
@@ -299,7 +322,7 @@ def _check_codex_rules(content, script):
     """A rules file Codex cannot parse disables all of the user's rules, so verify ours first."""
     codex = shutil.which('codex')
     if not codex:
-        return
+        return False
     expected = [(['arda', 'peers'], 'allow'), ([str(script), 'peers'], 'allow'),
                 (['arda', 'trust', '--yes'], 'forbidden')]
     with tempfile.TemporaryDirectory() as tmp:
@@ -315,3 +338,4 @@ def _check_codex_rules(content, script):
             if proc.returncode != 0 or got != decision:
                 raise TrustError(f'Codex does not treat `{" ".join(command)}` as {decision} with the generated '
                                  f'rules, so nothing was changed: {(proc.stderr or proc.stdout).strip()[:300]}')
+    return True

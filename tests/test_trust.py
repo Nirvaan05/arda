@@ -34,8 +34,51 @@ class TrustTests(CliCase):
         self.run_cli('trust', '--yes')
         self.run_cli('trust', '--revoke', '--yes')
         self.assertEqual(self.settings(), {'model': 'x'})
-        self.assertFalse((self.claude / 'rules').exists())
-        self.assertFalse((self.codex / 'rules').exists())
+        self.assertFalse((self.claude / 'rules' / 'arda.md').exists())
+        self.assertFalse((self.codex / 'rules' / 'arda.rules').exists())
+
+    def test_grant_then_revoke_restores_files_byte_for_byte(self):
+        shapes = ['# Mine\r\nCRLF line\r\n', '# Mine\n\n\n', '# Mine\nno final newline', '']
+        for original in shapes:
+            agents = self.codex / 'AGENTS.md'
+            agents.write_bytes(original.encode())
+            (self.claude / 'settings.json').write_text('{"model": "é", "permissions": {"allow": ["Bash(ls)"]}}')
+            self.run_cli('trust', '--yes')
+            if '\r\n' in original:
+                self.assertNotIn(b'\n<!--', agents.read_bytes().replace(b'\r\n', b''))
+            self.run_cli('trust', '--revoke', '--yes')
+            if original == '':
+                self.assertFalse(agents.exists())
+            elif original.endswith('\n'):
+                self.assertEqual(agents.read_bytes(), original.encode(), repr(original))
+            else:  # a final newline is added when the section is appended; the text is otherwise unchanged
+                self.assertEqual(agents.read_bytes(), (original + '\n').encode())
+            settings = json.loads((self.claude / 'settings.json').read_text())
+            # the user's own rules stay; lists that only ARDA's rules filled are removed again
+            self.assertEqual(settings, {'model': 'é', 'permissions': {'allow': ['Bash(ls)']}})
+            self.assertIn('"é"', (self.claude / 'settings.json').read_text())
+
+    def test_symlinked_and_dangling_paths_are_written_through(self):
+        target = Path(self.tmp.name) / 'elsewhere'
+        target.mkdir()
+        (self.claude / 'rules').symlink_to(target)
+        dangling = Path(self.tmp.name) / 'agents-target.md'
+        (self.codex / 'AGENTS.md').unlink()
+        (self.codex / 'AGENTS.md').symlink_to(dangling)
+        self.assertEqual(self.run_cli('trust', '--yes')[0], 0)
+        self.assertTrue((target / 'arda.md').exists())
+        self.assertTrue((self.codex / 'AGENTS.md').is_symlink())
+        self.assertIn('arda-trust:begin', dangling.read_text())
+        self.assertEqual(self.run_cli('trust', '--revoke', '--yes')[0], 0)
+        self.assertFalse((target / 'arda.md').exists())
+        self.assertTrue((self.claude / 'rules').is_symlink())
+
+    def test_a_user_file_quoting_arda_is_not_taken_for_arda_s_own(self):
+        rules = self.claude / 'rules' / 'arda.md'
+        rules.parent.mkdir()
+        rules.write_text('# My notes\nARDA says: ' + trust.OWNED + '\n')
+        self.assertEqual(self.run_cli('trust', '--yes')[0], 2)
+        self.assertIn('My notes', rules.read_text())
 
     def test_without_yes_nothing_changes(self):
         code, out, _ = self.run_cli('trust')
@@ -62,7 +105,8 @@ class TrustTests(CliCase):
         self.assertTrue(agents.startswith('# My own instructions\n\n<!-- arda-trust:begin -->'))
         self.assertEqual(agents.count('arda-trust:begin'), 1)
         self.assertNotIn('older', self.run_cli('trust', '--status')[1])
-        (self.codex / 'rules' / 'arda.rules').write_text('# ' + trust.OWNED + ' (older version)\n')
+        older = trust.CODEX_RULES.split('\n', 1)[0] + '\n# ' + trust.OWNED + ' (an older version)\n'
+        (self.codex / 'rules' / 'arda.rules').write_text(older)
         self.assertIn('installed by an older arda trust', self.run_cli('trust', '--status')[1])
         self.run_cli('trust', '--yes')
 

@@ -110,9 +110,9 @@ marked section in its global `AGENTS.md` plus an execpolicy rule that lets the `
 command, and nothing else, run outside the sandbox. The approval says that ARDA messages
 come from peer agents, may be answered without a per-message go-ahead, and must be
 rejected when they ask for anything risky. Agents still decide what to take on, and the
-harness's own permission prompts still apply. `arda trust` refuses to run from inside an
-agent's pane, and both harnesses are told never to let an agent run `arda trust`
-itself. New agent sessions pick it up; `arda trust --status` shows what is installed
+harness's own permission prompts still apply. `arda trust` tries to refuse when an agent
+runs it (a best-effort check), and the rules it installs forbid agents to run `arda trust`,
+which Claude Code and Codex enforce themselves. New agent sessions pick it up; `arda trust --status` shows what is installed
 and whether it is current.
 
 ## Introduce the agents
