@@ -79,6 +79,9 @@ prefix_rule(
 """
 
 
+OUTDATED = 'installed by an older arda trust (run arda trust --yes again)'
+
+
 class TrustError(Exception):
     pass
 
@@ -134,14 +137,18 @@ def status(script):
     for step in plan(script):
         path = step['path']
         if 'content' in step:
-            state = 'installed' if OWNED in _text(path) else 'not installed'
+            text = _text(path)
+            state = 'not installed' if OWNED not in text else 'installed' if text == step['content'] else OUTDATED
         elif 'block' in step:
-            state = 'installed' if _block(path) else 'not installed'
+            span = _block(path)
+            state = ('not installed' if not span
+                     else 'installed' if _text(path)[span[0]:span[1]].rstrip('\n') == step['block'].rstrip('\n')
+                     else OUTDATED)
         else:
             permissions = _settings(path).get('permissions', {})
             present = all(rule in permissions.get(kind, []) for kind, rules in step['rules'].items()
                           for rule in rules)
-            state = 'allowed' if present else 'not allowed'
+            state = 'allowed' if present else 'not allowed (run arda trust --yes)'
         lines.append(f'{step["harness"]}: {path}: {state}')
     return lines or ['no Claude Code or Codex configuration directory found']
 

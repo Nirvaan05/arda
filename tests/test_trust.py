@@ -53,7 +53,10 @@ class TrustTests(CliCase):
         agents = (self.codex / 'AGENTS.md').read_text()
         self.assertTrue(agents.startswith('# My own instructions\n\n<!-- arda-trust:begin -->'))
         self.assertEqual(agents.count('arda-trust:begin'), 1)
-        self.assertIn('installed', self.run_cli('trust', '--status')[1])
+        self.assertNotIn('older', self.run_cli('trust', '--status')[1])
+        (self.codex / 'rules' / 'arda.rules').write_text('# ' + trust.OWNED + ' (older version)\n')
+        self.assertIn('installed by an older arda trust', self.run_cli('trust', '--status')[1])
+        self.run_cli('trust', '--yes')
 
         self.assertEqual(self.run_cli('trust', '--revoke', '--yes')[0], 0)
         self.assertFalse((self.claude / 'rules' / 'arda.md').exists())
