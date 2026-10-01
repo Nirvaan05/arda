@@ -113,6 +113,12 @@ class CliTests(unittest.TestCase):
         replies = [parse(p['text']) for p in self.prompts()[1:]]
         self.assertEqual([(m.type, m.body) for m in replies], [('result', 'All good.'), ('reject', 'Out of scope.')])
 
+    def test_plain_shell_pane_can_send_notes_but_not_tasks(self):
+        self.env['HERDR_PANE_ID'] = 'w1:p9'  # a pane with no agent in it
+        self.assertEqual(self.run_cli('task', '@codex', 'x')[0], 2)
+        self.assertEqual(self.run_cli('send', '@codex', 'x')[0], 0)
+        self.assertEqual(parse(self.prompts()[0]['text']).sender, 'w1:p9')
+
     def test_unnamed_sender_uses_its_pane_as_address(self):
         self.set_agents(agent(None, 'w1:p1', kind='claude'), agent('codex', 'w1:p2'))
         self.run_cli('send', '@codex', 'hi')

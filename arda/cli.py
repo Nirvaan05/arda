@@ -124,6 +124,9 @@ def send(herdr, args, kind, re=None):
     route = target(args.to)
     if route in (me['name'], me['pane_id']):
         raise UsageError('cannot send an ARDA message to yourself')
+    if kind == 'task_request' and not me['agent']:
+        raise UsageError(f'{me["pane_id"]} has no agent to receive the ack and result, so it cannot send tasks; '
+                         'send a note instead, or run arda from an agent')
     body = read_body(getattr(args, 'text', None), getattr(args, 'file', None))
     message = Message(type=kind, sender=me['address'], recipient=address(route), body=body, re=re)
     return deliver(herdr, message, force=getattr(args, 'force', False))
