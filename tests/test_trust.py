@@ -29,6 +29,14 @@ class TrustTests(CliCase):
     def settings(self):
         return json.loads((self.claude / 'settings.json').read_text())
 
+    def test_revoke_leaves_no_empty_traces(self):
+        (self.claude / 'settings.json').write_text(json.dumps({'model': 'x'}))
+        self.run_cli('trust', '--yes')
+        self.run_cli('trust', '--revoke', '--yes')
+        self.assertEqual(self.settings(), {'model': 'x'})
+        self.assertFalse((self.claude / 'rules').exists())
+        self.assertFalse((self.codex / 'rules').exists())
+
     def test_without_yes_nothing_changes(self):
         code, out, _ = self.run_cli('trust')
         self.assertEqual(code, 0)

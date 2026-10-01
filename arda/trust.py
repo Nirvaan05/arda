@@ -196,6 +196,8 @@ def apply(script, revoke=False):
                 if path.exists():
                     path.unlink()
                     done.append(f'removed {path}')
+                    if not any(path.parent.iterdir()):
+                        path.parent.rmdir()  # the rules directory arda trust created, now empty
             elif _text(path) != step['content']:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 _write(path, step['content'])
@@ -237,6 +239,8 @@ def apply(script, revoke=False):
                 if missing:
                     current.extend(missing)
                     changed.append(kind)
+        if revoke and not permissions:
+            del settings['permissions']  # an empty permissions object means the same as none
         if changed:
             _write(path, json.dumps(settings, indent=2) + '\n')
             verb = 'removed ARDA rules from' if revoke else 'added ARDA rules to'
