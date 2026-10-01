@@ -1,4 +1,6 @@
 #!/bin/sh
 # Run ARDA from its plugin root, wherever this script is invoked or linked from.
+# The root is passed as an argument, not through PYTHONPATH, and -P keeps the
+# caller's current directory off sys.path, so no local module can shadow ARDA.
 root=$(dirname -- "$(dirname -- "$(readlink -f -- "$0")")")
-PYTHONPATH="$root${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m arda "$@"
+exec python3 -P -c 'import sys; sys.path.insert(0, sys.argv.pop(1)); from arda.cli import main; raise SystemExit(main())' "$root" "$@"
