@@ -143,6 +143,9 @@ class CliTests(unittest.TestCase):
 
     def test_usage_errors(self):
         self.assertEqual(self.run_cli('send', '@claude', 'me')[0], 2)
+        self.assertEqual(self.run_cli('send', 'w1:p1', 'me by pane')[0], 2)
+        self.assertEqual(self.run_cli('ack', '@codex', 'not-an-id')[0], 2)
+        self.assertEqual(self.run_cli('task', '@codex', 'x', '--session', 'other')[0], 2)
         self.assertEqual(self.run_cli('send', '@codex', '   ')[0], 2)
         self.assertEqual(self.run_cli('send', '@codex', 'x' * (MAX_BODY + 1))[0], 2)
         self.assertEqual(self.run_cli('send', 'Bad Name', 'x')[0], 2)

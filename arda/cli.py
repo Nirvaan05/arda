@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .envelope import MAX_BODY, PROTOCOL, SYSTEM, AddressError, Message, address, target
+from .envelope import MAX_BODY, PROTOCOL, SYSTEM, Message, address, target
 from .herdr import Herdr, HerdrError
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -34,10 +34,12 @@ def identity(herdr):
     """Describe the calling pane's agent, or return None outside a Herdr pane.
 
     Commands Herdr launches for a plugin get the UI-focused pane as
-    HERDR_PANE_ID, not a caller, so they act as ARDA itself.
+    HERDR_PANE_ID, not a caller, so they act as ARDA itself. With an explicit
+    --session the pane ID would be looked up in another server, so it is not
+    used either.
     """
     pane = os.environ.get('HERDR_PANE_ID')
-    if not pane or os.environ.get('HERDR_PLUGIN_ID'):
+    if not pane or os.environ.get('HERDR_PLUGIN_ID') or herdr.session:
         return None
     try:
         agent = herdr.agent(pane)
@@ -119,11 +121,11 @@ def read_body(text, path):
 
 def send(herdr, args, kind, re=None):
     me = require_identity(herdr)
-    to = address(target(args.to))
-    if to == me['address'] or (me['name'] and to == address(me['name'])):
+    route = target(args.to)
+    if route in (me['name'], me['pane_id']):
         raise UsageError('cannot send an ARDA message to yourself')
     body = read_body(getattr(args, 'text', None), getattr(args, 'file', None))
-    message = Message(type=kind, sender=me['address'], recipient=to, body=body, re=re)
+    message = Message(type=kind, sender=me['address'], recipient=address(route), body=body, re=re)
     return deliver(herdr, message, force=getattr(args, 'force', False))
 
 
@@ -252,7 +254,8 @@ def cmd_reject(herdr, args):
 def parser():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument('--json', action='store_true', help='print machine-readable JSON')
-    common.add_argument('--session', help='Herdr session to use when not running inside a Herdr pane')
+    common.add_argument('--session', help='Herdr session to use from outside Herdr; '
+                                          'messages can only be sent from an agent pane')
 
     def body(sub, required=True):
         sub.add_argument('text', nargs=None if required else '?',
@@ -311,7 +314,7 @@ def main(argv=None):
     herdr = Herdr(session=args.session)
     try:
         data, text = HANDLERS[args.command](herdr, args)
-    except (UsageError, AddressError, OSError) as err:
+    except (UsageError, ValueError, OSError) as err:
         print(f'arda: {err}', file=sys.stderr)
         return EXIT_USAGE
     except HerdrError as err:

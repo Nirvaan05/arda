@@ -19,6 +19,7 @@ MAX_BODY = 32000
 
 _NAME = re.compile(r'^[a-z][a-z0-9_-]{0,31}$')
 _PANE = re.compile(r'^w\d+:p\d+$')
+_ID = re.compile(r'^[0-9a-f]{6}$')
 _HEADER = re.compile(r'^\[arda/1 (?P<type>[a-z_]+)(?P<fields>(?: [a-z]+=\S+)*)\]$')
 # Herdr types prompts into a terminal (inside bracketed paste when the agent
 # enables it), so a body must not carry escape sequences or other controls.
@@ -53,6 +54,10 @@ def address(name_or_pane):
     return name_or_pane if _PANE.match(name_or_pane) else f'@{name_or_pane}'
 
 
+def is_address(value):
+    return bool(_PANE.match(value) or (value.startswith('@') and _NAME.match(value[1:])))
+
+
 @dataclass(frozen=True)
 class Message:
     type: str
@@ -67,10 +72,16 @@ class Message:
             raise ValueError(f'unknown message type: {self.type}')
         if (self.type in REPLY_TYPES) != (self.re is not None):
             raise ValueError(f'{self.type} messages {"need" if self.type in REPLY_TYPES else "cannot have"} re=')
+        for name, value in (('id', self.id), ('re', self.re)):
+            if value is not None and not _ID.match(value):
+                raise ValueError(f'{name} must be six lowercase hex digits, not {value!r}')
+        for name, value in (('from', self.sender), ('to', self.recipient)):
+            if not is_address(value):
+                raise ValueError(f'{name} is not an ARDA address: {value!r}')
 
     def header(self):
         fields = [f'id={self.id}']
-        if self.re:
+        if self.re is not None:
             fields.append(f're={self.re}')
         fields += [f'from={self.sender}', f'to={self.recipient}']
         return f'[{PROTOCOL} {self.type} {" ".join(fields)}]'

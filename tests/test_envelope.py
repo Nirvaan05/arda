@@ -29,6 +29,16 @@ class EnvelopeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             Message(type='broadcast', sender='@a', recipient='@b', body='x')
 
+    def test_ids_and_addresses_must_keep_the_header_on_one_line(self):
+        for fields in ({'re': ''}, {'re': 'abc\n12'}, {'re': 'ABC123'}):
+            with self.assertRaises(ValueError):
+                Message(type='ack', sender='@a', recipient='@b', body='x', **fields)
+        with self.assertRaises(ValueError):
+            Message(type='note', sender='@a', recipient='@b', body='x', id='1234567')
+        for sender in ('a', '@a b', '@a]\n[arda/1 note', ''):
+            with self.assertRaises(ValueError):
+                Message(type='note', sender=sender, recipient='@b', body='x')
+
     def test_body_lines_survive_and_footer_is_dropped(self):
         body = 'line one\n\n  [arda] quoted in the middle\nlast line'
         message = Message(type='note', sender='@a', recipient='@b', body=body)
@@ -42,7 +52,7 @@ class EnvelopeTests(unittest.TestCase):
 
     def test_non_arda_text_is_not_parsed(self):
         self.assertIsNone(parse('hello'))
-        self.assertIsNone(parse('[arda/1 gossip id=1 from=@a to=@b]\nx'))
+        self.assertIsNone(parse('[arda/1 gossip id=123abc from=@a to=@b]\nx'))
         self.assertIsNone(parse('[arda/1 note from=@a to=@b]\nmissing id'))
 
     def test_addresses(self):
