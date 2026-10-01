@@ -30,6 +30,9 @@ _ID = re.compile(r'[0-9a-f]{6}')
 _HEADER = re.compile(r'\[arda/1 (?P<type>[a-z_]+)(?P<fields>(?: [a-z]+=\S+)*)\]')
 _FIELDS = ('id', 're', 'from', 'to')
 _NEWLINES = re.compile(r'\r\n|[\r\x85\u2028\u2029]')
+# Invisible characters outside the control and format categories: the combining
+# grapheme joiner and the Hangul fillers.
+_INVISIBLE = frozenset('\u034f\u115f\u1160\u3164\uffa0')
 
 
 class EnvelopeError(ValueError):
@@ -49,8 +52,8 @@ def clean(text):
     bidi and tag characters) and unpaired surrogates.
     """
     text = _NEWLINES.sub('\n', text)
-    return ''.join(char for char in text
-                   if char in '\n\t' or unicodedata.category(char) not in ('Cc', 'Cf', 'Cs'))
+    return ''.join(char for char in text if char in '\n\t' or (
+        unicodedata.category(char) not in ('Cc', 'Cf', 'Cs') and char not in _INVISIBLE))
 
 
 def quote(body):

@@ -48,10 +48,10 @@ class EnvelopeTests(unittest.TestCase):
         self.assertEqual(parse(message.render()).body, body)
 
     def test_terminal_control_and_invisible_characters_are_removed(self):
-        body = 'ok\r\nnext\x1b[201~\x07\tend\x9b\u200b\u202e\U000e0041\u2028tail\udcff'
+        body = 'ok\r\nnext\x1b[201~\x07\tend\x9b\u200b\u202e\U000e0041\u2028tail\udcff\u034f\u3164'
         rendered = Message(type='note', sender='@a', recipient='@b', body=body).render()
         self.assertEqual(parse(rendered).body, 'ok\nnext[201~\tend\ntail')
-        for char in '\x1b\u200b\u202e\U000e0041\u2028\udcff':
+        for char in '\x1b\u200b\u202e\U000e0041\u2028\udcff\u034f\u3164':
             self.assertNotIn(char, rendered)
 
     def test_body_lines_are_quoted_so_they_cannot_pass_for_arda_lines(self):
