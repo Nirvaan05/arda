@@ -24,7 +24,8 @@ A user asks Claude to get some work done by Codex. Claude runs:
 
 ```text
 $ arda task @codex "Count the Python functions whose names start with test_ under tests/."
-delivered: task_request 708d3e to @codex: @codex received it and started a turn.
+delivered: task_request 708d3e to @codex: @codex was seen working after the message was submitted.
+Its ack and its result (or reject) will arrive here as ARDA messages; you do not need to wait or poll.
 ```
 
 Codex receives a prompt that starts with `[arda/1 task_request id=708d3e from=@claude to=@codex]`.
@@ -36,7 +37,7 @@ session as a new prompt, and Claude reports the number to the user. See
 ## Requirements
 
 - Linux and Python 3.11 or later; no other dependencies.
-- Herdr 0.9.0 or later. ARDA is developed and tested with Herdr 0.9.3.
+- Herdr 0.9.3 or later.
 - Agents running in Herdr panes and started with names, e.g.
   `herdr agent start codex --kind codex --pane <pane>`. Tested with Claude Code and
   Codex.
@@ -77,11 +78,13 @@ in [skills/arda](skills/arda/SKILL.md). Link it into `~/.claude/skills/` for Cla
 | `arda ack @name <id>` | Accept a task you received. |
 | `arda result @name <id> "text"` | Return the outcome of a task. |
 | `arda reject @name <id> "reason"` | Decline a task, or report that it failed. |
-| `arda introduce [@name ...]` | Introduce ARDA to agents. |
+| `arda introduce [@name ...]` | Introduce ARDA to agents. Busy agents are skipped. |
+| `arda status` | Plugin and protocol version. |
 
 Message text can also come from `--file PATH` or from stdin (`-`). Add `--json` for
-machine-readable output. Exit status: 0 delivered or submitted, 1 not delivered,
-2 usage error, 3 uncertain.
+machine-readable output. Exit status: 0 delivered or submitted, 1 not delivered or a
+Herdr error, 2 usage error, 3 uncertain. Run as Herdr plugin actions, commands also
+show their result as a Herdr notification.
 
 ## Agent notes
 

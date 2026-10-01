@@ -13,7 +13,7 @@ An address names a participant, not a terminal.
 | --- | --- |
 | `@codex` | The live Herdr agent named `codex` in the sender's Herdr session. |
 | `w1:p2` | A Herdr pane ID. Used for agents that have no name. It is a route, not an identity. |
-| `@arda` | Reserved for messages from ARDA itself, such as introductions. Nothing can reply to it. |
+| `@arda` | Reserved for messages from ARDA itself, such as introductions. It cannot be addressed, and an agent named `arda` cannot send. |
 
 Names follow Herdr's agent-name rules (`[a-z][a-z0-9_-]{0,31}`). Herdr resolves a name to
 the pane that currently hosts that agent. Names are scoped to one Herdr server: the same
@@ -54,8 +54,10 @@ Count the Python functions whose names start with test_ under tests/.
 - **Header**: `[arda/1 <type> id=<id> [re=<id>] from=<address> to=<address>]`. The `id` is
   six lowercase hexadecimal digits, chosen at random by the sender.
 - **Body**: free text. Terminal control characters are removed, except newlines and tabs.
-  ARDA's CLI limits a body to 32,000 characters; larger content should be written to a
-  file and referenced by path.
+  A body line that starts with `[arda` (in any case, after any indentation) gets one more
+  leading backslash, so a body cannot pass itself off as a header, a footer or a message
+  from ARDA; parsers remove it again. ARDA's CLI limits a body to 32,000 characters;
+  larger content should be written to a file and referenced by path.
 - **Footer**: lines starting with `[arda] `. They tell the receiving agent how to answer.
   Footer lines are not part of the body.
 
@@ -65,10 +67,10 @@ ARDA hands a message to Herdr (`herdr agent prompt`) and reports only what Herdr
 
 | Status | Meaning |
 | --- | --- |
-| `delivered` | The receiver was ready, and Herdr saw it start a turn after the text was submitted. |
+| `delivered` | The receiver was ready, and Herdr saw it working after the text was submitted. |
 | `submitted` | The receiver was busy. Its harness takes queued input at its next step (Claude Code and Codex both do). |
-| `uncertain` | The text was submitted, but the receiver was not seen to start. It may still act on it. Do not resend blindly. |
-| `not_delivered` | No such agent, or the agent is blocked at an approval or question prompt, or Herdr cannot classify its state (override with `--force`). |
+| `uncertain` | The text may have been submitted, but Herdr could not confirm that the receiver started (stalled, timed out, or the connection failed). It may still act on it. Do not resend blindly. |
+| `not_delivered` | Nothing was typed: no such agent, the agent is blocked at an approval or question prompt, Herdr cannot classify its state (override with `--force`), or, for introductions only, the agent is busy. |
 
 Delivery is not acceptance. Only `ack` means the receiver accepted a task, and only
 `result` or `reject` closes it. ARDA never retries a message, never types into a
