@@ -19,6 +19,7 @@ class TrustTests(CliCase):
         self.claude.mkdir()
         self.codex.mkdir()
         (self.claude / 'settings.json').write_text(json.dumps({'model': 'x', 'permissions': {'allow': ['Bash(ls)']}}))
+        (self.codex / 'AGENTS.md').write_text('# My own instructions\n')
         # A plain shell pane (no agent), and no codex binary so rules are not validated here.
         self.env.update(CLAUDE_CONFIG_DIR=str(self.claude), CODEX_HOME=str(self.codex), HERDR_PANE_ID='w1:p9',
                         PATH='/usr/bin:/bin')
@@ -44,12 +45,22 @@ class TrustTests(CliCase):
         self.assertEqual(settings['model'], 'x')
         self.assertEqual(settings['permissions']['allow'], ['Bash(ls)', 'Bash(arda *)', f'Bash({SCRIPT} *)'])
         self.assertIn(json.dumps([str(SCRIPT)]), (self.codex / 'rules' / 'arda.rules').read_text())
+        agents = (self.codex / 'AGENTS.md').read_text()
+        self.assertTrue(agents.startswith('# My own instructions\n\n<!-- arda-trust:begin -->'))
+        self.assertEqual(agents.count('arda-trust:begin'), 1)
         self.assertIn('installed', self.run_cli('trust', '--status')[1])
 
         self.assertEqual(self.run_cli('trust', '--revoke', '--yes')[0], 0)
         self.assertFalse((self.claude / 'rules' / 'arda.md').exists())
         self.assertFalse((self.codex / 'rules' / 'arda.rules').exists())
         self.assertEqual(self.settings(), {'model': 'x', 'permissions': {'allow': ['Bash(ls)']}})
+        self.assertEqual((self.codex / 'AGENTS.md').read_text(), '# My own instructions\n')
+
+    def test_codex_override_file_takes_the_section_when_codex_reads_it(self):
+        (self.codex / 'AGENTS.override.md').write_text('# Override\n')
+        self.run_cli('trust', '--yes')
+        self.assertIn('arda-trust:begin', (self.codex / 'AGENTS.override.md').read_text())
+        self.assertNotIn('arda-trust', (self.codex / 'AGENTS.md').read_text())
 
     def test_an_agent_cannot_grant_itself_trust(self):
         self.env['HERDR_PANE_ID'] = 'w1:p1'  # claude's pane in the fake session
