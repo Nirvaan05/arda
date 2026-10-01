@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .envelope import MAX_BODY, PROTOCOL, SYSTEM, Message, address, target
+from .envelope import MAX_BODY, PROTOCOL, SYSTEM, Message, address, clean, target
 from .herdr import Herdr, HerdrError
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -48,6 +48,8 @@ def identity(herdr):
             raise
         return {'address': pane, 'name': None, 'agent': None, 'pane_id': pane}
     name = agent.get('name')
+    if name and address(name) == SYSTEM:
+        raise UsageError(f'the agent name {name!r} is reserved for ARDA itself; rename this agent to use ARDA')
     return {
         'address': address(name) if name else agent['pane_id'],
         'name': name,
@@ -113,7 +115,7 @@ def read_body(text, path):
         text = Path(path).read_text()
     elif text == '-':
         text = sys.stdin.read()
-    if not text or not text.strip():
+    if not text or not clean(text).strip():
         raise UsageError('message text is empty')
     if len(text) > MAX_BODY:
         raise UsageError(f'message is {len(text)} characters; the limit is {MAX_BODY}. '

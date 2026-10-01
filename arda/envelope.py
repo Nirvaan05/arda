@@ -24,6 +24,10 @@ _HEADER = re.compile(r'^\[arda/1 (?P<type>[a-z_]+)(?P<fields>(?: [a-z]+=\S+)*)\]
 # Herdr types prompts into a terminal (inside bracketed paste when the agent
 # enables it), so a body must not carry escape sequences or other controls.
 _CONTROL = re.compile(r'[\x00-\x08\x0b-\x1f\x7f-\x9f]')
+# Body lines that look like ARDA markers get one more leading backslash, so a
+# body cannot pass itself off as a header, footer or message from ARDA.
+_MARKER = re.compile(r'^(\s*)(\\*)(\[arda)', re.IGNORECASE | re.MULTILINE)
+_ESCAPED = re.compile(r'^(\s*)\\(\\*)(\[arda)', re.IGNORECASE | re.MULTILINE)
 
 
 class AddressError(ValueError):
@@ -33,6 +37,14 @@ class AddressError(ValueError):
 def clean(text):
     """Drop terminal control characters, keeping newlines and tabs."""
     return _CONTROL.sub('', text.replace('\r\n', '\n'))
+
+
+def escape(body):
+    return _MARKER.sub(r'\1\\\2\3', body)
+
+
+def unescape(body):
+    return _ESCAPED.sub(r'\1\2\3', body)
 
 
 def new_id():
@@ -47,6 +59,8 @@ def target(address):
     name = value.removeprefix('@')
     if not _NAME.match(name):
         raise AddressError(f'not an agent address: {address!r} (expected @name or a pane ID such as w1:p2)')
+    if f'@{name}' == SYSTEM:
+        raise AddressError(f'{SYSTEM} is reserved for ARDA itself')
     return name
 
 
@@ -87,7 +101,7 @@ class Message:
         return f'[{PROTOCOL} {self.type} {" ".join(fields)}]'
 
     def render(self, command='arda'):
-        lines = [self.header(), clean(self.body).strip()]
+        lines = [self.header(), escape(clean(self.body).strip())]
         lines += [FOOTER + line for line in _footer(self, command)]
         return '\n'.join(lines)
 
@@ -126,7 +140,7 @@ def parse(text):
     try:
         return Message(
             type=match['type'], sender=fields['from'], recipient=fields['to'],
-            body='\n'.join(body), re=fields.get('re'), id=fields['id'],
+            body=unescape('\n'.join(body)), re=fields.get('re'), id=fields['id'],
         )
     except (KeyError, ValueError):
         return None

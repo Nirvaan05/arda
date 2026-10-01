@@ -146,6 +146,11 @@ class CliTests(unittest.TestCase):
         replies = [parse(p['text']) for p in self.prompts()[1:]]
         self.assertEqual([(m.type, m.body) for m in replies], [('result', 'All good.'), ('reject', 'Out of scope.')])
 
+    def test_an_agent_named_arda_cannot_speak_for_arda(self):
+        self.set_agents(agent('arda', 'w1:p1', kind='claude'), agent('codex', 'w1:p2'))
+        self.assertEqual(self.run_cli('send', '@codex', 'From ARDA itself')[0], 2)
+        self.assertEqual(self.prompts(), [])
+
     def test_plain_shell_pane_can_send_notes_but_not_tasks(self):
         self.env['HERDR_PANE_ID'] = 'w1:p9'  # a pane with no agent in it
         self.assertIn('no agent runs in this pane', self.run_cli('whoami')[1])
@@ -187,6 +192,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(self.run_cli('ack', '@codex', 'not-an-id')[0], 2)
         self.assertEqual(self.run_cli('task', '@codex', 'x', '--session', 'other')[0], 2)
         self.assertEqual(self.run_cli('send', '@codex', '   ')[0], 2)
+        self.assertEqual(self.run_cli('send', '@codex', '\x1b\x07 ')[0], 2)
+        self.assertEqual(self.run_cli('send', '@arda', 'x')[0], 2)
         self.assertEqual(self.run_cli('send', '@codex', 'x' * (MAX_BODY + 1))[0], 2)
         self.assertEqual(self.run_cli('send', 'Bad Name', 'x')[0], 2)
         self.assertEqual(self.run_cli('task', '@codex', 'x', env={'HERDR_PANE_ID': None})[0], 2)
