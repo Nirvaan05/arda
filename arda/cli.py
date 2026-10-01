@@ -51,6 +51,31 @@ def command():
     return shlex.quote(str(script))
 
 
+def _parent(pid):
+    try:
+        with open(f'/proc/{pid}/stat') as handle:
+            return int(handle.read().rsplit(')', 1)[1].split()[1])
+    except (OSError, ValueError, IndexError):
+        return 0
+
+
+def runs_in_pane(herdr, pane):
+    """Whether this process descends from the shell of the given Herdr pane.
+
+    HERDR_PANE_ID alone proves nothing: a harness that runs commands in a
+    shared background process (Codex's app-server daemon) passes on whatever
+    pane environment that process was started with.
+    """
+    shell = herdr.pane_shell_pid(pane)
+    pid, seen = os.getpid(), set()
+    while pid > 1 and pid not in seen:
+        if pid == shell:
+            return True
+        seen.add(pid)
+        pid = _parent(pid)
+    return False
+
+
 def identity(herdr):
     """Describe the calling pane's agent, or return None outside a Herdr pane.
 
@@ -62,6 +87,10 @@ def identity(herdr):
     pane = os.environ.get('HERDR_PANE_ID')
     if not pane or os.environ.get('HERDR_PLUGIN_ID') or herdr.session:
         return None
+    if not runs_in_pane(herdr, pane):
+        raise UsageError(f'HERDR_PANE_ID says {pane}, but this command is not running inside that pane, so ARDA '
+                         'cannot tell who is sending. The agent harness probably runs commands outside its pane '
+                         '(for Codex, start it with --no-daemon), or a sandbox hides the pane\'s processes.')
     try:
         agent = herdr.agent(pane)
     except HerdrError as err:
@@ -82,9 +111,11 @@ def identity(herdr):
 def require_identity(herdr):
     me = identity(herdr)
     if me is None:
-        where = ('--session is for use outside Herdr' if herdr.session
-                 else 'not running inside a Herdr pane (HERDR_PANE_ID is not set)')
-        raise UsageError(f'{where}; ARDA messages are sent by agents from their own pane')
+        if herdr.session:
+            raise UsageError('--session is for use outside Herdr; ARDA messages are sent by agents from their own pane')
+        raise UsageError('not running inside a Herdr pane (HERDR_PANE_ID is not set); ARDA messages are sent by '
+                         'agents from their own pane. If this is an agent in a Herdr pane, its harness runs commands '
+                         'outside the pane (for Codex, start it with --no-daemon).')
     return me
 
 
@@ -186,7 +217,10 @@ def cmd_whoami(herdr, args):
 
 
 def cmd_peers(herdr, args):
-    me = identity(herdr)
+    try:
+        me = identity(herdr)
+    except UsageError:
+        me = None  # listing peers does not need to know who is asking
     peers = []
     for agent in herdr.agents():
         name = agent.get('name')

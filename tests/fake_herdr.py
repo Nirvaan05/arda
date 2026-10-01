@@ -3,7 +3,8 @@
 State: {"agents": [{name, agent, agent_status, pane_id, prompt_error?}], "prompts": []}.
 Each accepted `agent prompt` is appended to "prompts", each notification to "notifications"
 and every argv to "calls". Optional "error" fails every call with that code; optional
-"raw" is printed verbatim instead of a reply.
+"raw" is printed verbatim instead of a reply; optional "shell_pid" is the pane shell
+reported by `pane process-info` (default: the process that ran this fake).
 """
 
 import json
@@ -45,6 +46,10 @@ def main(argv):
         reply({'type': 'agent_list', 'agents': agents})
     if argv[:2] == ['agent', 'get']:
         reply({'type': 'agent_info', 'agent': find(argv[2])})
+    if argv[:3] == ['pane', 'process-info', '--pane']:
+        # By default the caller (the test process running arda) is the pane's shell.
+        reply({'type': 'pane_process_info',
+               'process_info': {'pane_id': argv[3], 'shell_pid': state.get('shell_pid', os.getppid())}})
     if argv[:2] == ['notification', 'show']:
         state.setdefault('notifications', []).append(argv[2:])
         with open(path, 'w') as handle:

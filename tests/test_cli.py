@@ -180,6 +180,15 @@ class CliTests(unittest.TestCase):
         self.assertEqual(bodies, [f'--file={secret}', '-h is done'])
         self.assertNotIn('do not send', ''.join(p['text'] for p in self.prompts()))
 
+    def test_a_pane_id_inherited_from_elsewhere_is_not_an_identity(self):
+        # e.g. Codex's shared daemon running commands with another pane's environment
+        self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2'), shell_pid=999999999)
+        code, _, err = self.run_cli('send', '@codex', 'x')
+        self.assertEqual((code, self.prompts()), (2, []))
+        self.assertIn('--no-daemon', err)
+        code, out, _ = self.run_cli('peers', '--json')
+        self.assertEqual((code, [p['you'] for p in json.loads(out)]), (0, [False, False]))
+
     def test_plain_shell_pane_can_send_notes_but_not_tasks(self):
         self.env['HERDR_PANE_ID'] = 'w1:p9'  # a pane with no agent in it
         self.assertIn('no agent runs in this pane', self.run_cli('whoami')[1])

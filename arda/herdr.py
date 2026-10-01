@@ -68,6 +68,10 @@ class Herdr:
         _field(agent, 'pane_id', str)
         return agent
 
+    def pane_shell_pid(self, pane):
+        info = _field(self.call('pane', 'process-info', '--pane', pane), 'process_info', dict)
+        return _field(info, 'shell_pid', int)
+
     def prompt(self, target, text, confirm_ms=None):
         """Submit text to an agent as one prompt.
 
