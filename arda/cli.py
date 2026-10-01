@@ -145,7 +145,8 @@ def summary(result):
 
 
 def cmd_status(herdr, args):
-    return {'plugin': 'arda', 'version': __version__, 'protocol': PROTOCOL}, None
+    return ({'plugin': 'arda', 'version': __version__, 'protocol': PROTOCOL},
+            f'ARDA {__version__}, protocol {PROTOCOL}')
 
 
 def cmd_whoami(herdr, args):
@@ -210,23 +211,27 @@ def cmd_introduce(herdr, args):
         peers = [f'@{agent["name"]} ({agent.get("agent") or "?"})' for agent in named if agent['name'] != name]
         body = INTRODUCTION.format(me=address(name), peers=', '.join(peers) or 'none yet', cmd=command())
         message = Message(type='note', sender=me['address'] if me else SYSTEM, recipient=address(name), body=body)
-        result = deliver(herdr, message, force=args.force, skip_busy=True)
+        try:
+            result = deliver(herdr, message, force=args.force, skip_busy=True)
+        except HerdrError as err:  # raised before anything was typed for this recipient
+            result = {'status': 'not_delivered', 'to': message.recipient, 'detail': f'herdr: {err.message}'}
         results.append(result)
         lines.append(f'{result["status"]}: {result["to"]}: {result["detail"]}')
     for agent in [] if args.to else agents:
         if not agent.get('name'):
             lines.append(f'skipped {agent["pane_id"]} ({agent.get("agent") or "?"}): it has no name. '
                          f'Name it with: herdr agent rename {agent["pane_id"]} <name>')
-    text = '\n'.join(lines) or 'no named agents to introduce'
-    if os.environ.get('HERDR_PLUGIN_ID'):
-        notify(herdr, text)
+    if not results:
+        return {'status': 'none', 'results': []}, '\n'.join(lines + ['no named agents to introduce'])
     statuses = {result['status'] for result in results}
-    status = next((s for s in ('not_delivered', 'uncertain') if s in statuses), 'delivered')
-    return {'status': status, 'results': results}, text
+    status = next((s for s in ('uncertain', 'not_delivered') if s in statuses), 'delivered')
+    return {'status': status, 'results': results}, '\n'.join(lines)
 
 
 def notify(herdr, text):
-    """Best-effort Herdr notification, for results of UI-launched plugin actions."""
+    """Show a result in Herdr's UI. Output of UI-launched plugin actions only reaches a log."""
+    if not os.environ.get('HERDR_PLUGIN_ID'):
+        return
     try:
         herdr.call('notification', 'show', 'ARDA', '--body', text, timeout=10)
     except HerdrError:
@@ -318,10 +323,11 @@ EXIT_FOR_STATUS = {'delivered': EXIT_OK, 'submitted': EXIT_OK, 'uncertain': EXIT
                    'not_delivered': EXIT_FAILED}
 
 
-def fail(args, code, detail, exit_code):
+def fail(herdr, args, code, detail, exit_code):
     if args.json:
         print(json.dumps({'status': 'error', 'error': code, 'detail': detail}))
     print(f'arda: {detail}', file=sys.stderr)
+    notify(herdr, f'arda: {detail}')
     return exit_code
 
 
@@ -331,11 +337,9 @@ def main(argv=None):
     try:
         data, text = HANDLERS[args.command](herdr, args)
     except (UsageError, ValueError, OSError) as err:
-        return fail(args, 'usage', str(err), EXIT_USAGE)
+        return fail(herdr, args, 'usage', str(err), EXIT_USAGE)
     except HerdrError as err:
-        return fail(args, err.code, f'herdr: {err.message}', EXIT_FAILED)
-    if args.json or text is None:
-        print(json.dumps(data))
-    else:
-        print(text)
+        return fail(herdr, args, err.code, f'herdr: {err.message}', EXIT_FAILED)
+    print(json.dumps(data) if args.json else text)
+    notify(herdr, text)
     return EXIT_FOR_STATUS.get(data.get('status'), EXIT_OK) if isinstance(data, dict) else EXIT_OK

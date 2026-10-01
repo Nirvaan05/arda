@@ -186,6 +186,28 @@ class CliTests(unittest.TestCase):
         notifications = json.loads(self.state_path.read_text())['notifications']
         self.assertEqual(notifications[0][0], 'ARDA')
 
+    def test_introduce_keeps_going_and_ranks_uncertain_first(self):
+        self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2', prompt_error='timeout'),
+                        agent('reviewer', 'w1:p3', status='blocked', kind='codex'), agent('tester', 'w1:p4'))
+        code, out, _ = self.run_cli('introduce', '--json')
+        result = json.loads(out)
+        self.assertEqual((code, result['status']), (3, 'uncertain'))
+        self.assertEqual([r['status'] for r in result['results']], ['uncertain', 'not_delivered', 'delivered'])
+        self.assertEqual(self.prompts()[-1]['target'], 'tester')
+
+    def test_introduce_explicit_targets_and_nobody_to_introduce(self):
+        self.run_cli('introduce', '@codex')
+        self.assertEqual([p['target'] for p in self.prompts()], ['codex'])
+        self.set_agents(agent('claude', 'w1:p1'))
+        code, out, _ = self.run_cli('introduce', '--json')
+        self.assertEqual((code, json.loads(out)['status']), (0, 'none'))
+
+    def test_plugin_actions_report_through_a_notification(self):
+        code, _, _ = self.run_cli('status', env={'HERDR_PLUGIN_ID': 'arda'})
+        self.assertEqual(code, 0)
+        notifications = json.loads(self.state_path.read_text())['notifications']
+        self.assertEqual(notifications, [['ARDA', '--body', 'ARDA 0.1.0, protocol arda/1']])
+
     def test_usage_errors(self):
         self.assertEqual(self.run_cli('send', '@claude', 'me')[0], 2)
         self.assertEqual(self.run_cli('send', 'w1:p1', 'me by pane')[0], 2)
