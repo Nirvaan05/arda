@@ -58,10 +58,12 @@ class CliCase(unittest.TestCase):
 class CliTests(CliCase):
     def test_whoami_and_peers(self):
         code, out, _ = self.run_cli('whoami')
-        self.assertEqual((code, out.strip()), (0, '@claude (claude) at w1:p1'))
+        self.assertEqual(code, 0)
+        self.assertTrue(out.startswith('@claude (claude), pane w1:p1 of Herdr session main on '), out)
         code, out, _ = self.run_cli('peers', '--json')
-        peers = json.loads(out)
-        self.assertEqual([(p['address'], p['you']) for p in peers], [('@claude', True), ('@codex', False)])
+        peers = json.loads(out)['peers']
+        self.assertEqual([(p['address'], p['you'], p['place']) for p in peers],
+                         [('@claude', True, 'main'), ('@codex', False, 'main')])
 
     def test_task_to_idle_agent_is_delivered_with_activity_confirmation(self):
         code, out, _ = self.run_cli('task', '@codex', 'Review the diff.', '--json')
@@ -151,7 +153,7 @@ class CliTests(CliCase):
     def test_session_option_reaches_herdr(self):
         self.run_cli('peers', '--session', 'demo')
         calls = json.loads(self.state_path.read_text())['calls']
-        self.assertEqual(calls[0][:4], ['--session', 'demo', 'agent', 'list'])
+        self.assertIn(['--session', 'demo', 'agent', 'list'], calls)
 
     def test_missing_recipient_is_not_delivered(self):
         code, out, _ = self.run_cli('send', '@reviewer', 'x', '--json')
@@ -197,7 +199,14 @@ class CliTests(CliCase):
         self.assertEqual((code, self.prompts()), (2, []))
         self.assertIn('--no-daemon', err)
         code, out, _ = self.run_cli('peers', '--json')
-        self.assertEqual((code, [p['you'] for p in json.loads(out)]), (0, [False, False]))
+        self.assertEqual((code, [p['you'] for p in json.loads(out)['peers']]), (0, [False, False]))
+
+    def test_options_may_sit_between_positionals(self):
+        self.assertEqual(self.run_cli('task', '@codex', '--json', '--', 'one')[0], 0)
+        self.assertEqual(self.run_cli('task', '--json', '@codex', 'two')[0], 0)
+        self.env['HERDR_PANE_ID'] = 'w1:p2'
+        self.assertEqual(self.run_cli('result', '@claude', '--force', 'abc123', '--json', '--', 'three')[0], 0)
+        self.assertEqual([parse(p['text']).body for p in self.prompts()], ['one', 'two', 'three'])
 
     def test_plain_shell_pane_can_send_notes_but_not_tasks(self):
         self.env['HERDR_PANE_ID'] = 'w1:p9'  # a pane with no agent in it
@@ -220,7 +229,8 @@ class CliTests(CliCase):
         message = parse(prompt['text'])
         self.assertEqual((prompt['target'], message.sender, message.type), ('codex', '@claude', 'note'))
         self.assertIn('You are @codex.', message.body)
-        self.assertIn('@claude (claude), @reviewer (codex)', message.body)
+        self.assertIn('@claude (claude on ', message.body)
+        self.assertIn('@reviewer (codex on ', message.body)
         self.assertIn('@reviewer: @reviewer is busy', out)
         self.assertIn('herdr agent rename w1:p4 <name>', out)
 
@@ -255,7 +265,7 @@ class CliTests(CliCase):
         code, out, _ = self.run_cli('introduce')
         self.assertEqual(code, 0)
         self.assertEqual([p['target'] for p in self.prompts()], ['codex'])
-        self.assertIn("skipped w1:p3 (codex): its name 'arda' cannot be an ARDA address", out)
+        self.assertIn("skipped w1:p3@main (codex): its name 'arda' cannot be an ARDA address", out)
         self.assertNotIn('@arda', parse(self.prompts()[0]['text']).body)
         self.run_cli('introduce', '@claude', 'w1:p1')
         self.assertEqual(len(self.prompts()), 1)
