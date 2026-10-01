@@ -358,22 +358,53 @@ def cmd_introduce(herdr, args):
     return {'status': status, 'results': results}, '\n'.join(lines)
 
 
+def _under_herdr():
+    """Whether a Herdr server is among this process's ancestors (true in every Herdr pane)."""
+    pid = _parent(os.getpid())
+    while pid > 1:
+        try:
+            with open(f'/proc/{pid}/comm') as handle:
+                if handle.read().strip() == 'herdr':
+                    return True
+        except OSError:
+            return False
+        pid = _parent(pid)
+    return False
+
+
+def refuse_agents(herdr):
+    """Only the user may grant trust: refuse when called by an agent, or when that cannot be ruled out.
+
+    The check uses the caller's own Herdr server whatever --session says, and
+    does not rely on environment variables alone: an agent could unset them.
+    """
+    pane = os.environ.get('HERDR_PANE_ID')
+    if not pane and not _under_herdr():
+        return  # a terminal outside Herdr
+    if not pane:
+        raise UsageError('this runs inside a Herdr pane that does not identify itself, so it may be an agent; '
+                         'run arda trust yourself in a terminal')
+    local = Herdr(binary=herdr.binary)
+    try:
+        if not runs_in_pane(local, pane):
+            raise UsageError(f'this is not running in the pane HERDR_PANE_ID names ({pane}); '
+                             'run arda trust yourself in a terminal')
+        local.agent(pane)
+    except HerdrError as err:
+        if err.code == 'agent_not_found':
+            return  # a plain shell pane, used by the user
+        raise UsageError(f'cannot check who is running this ({err.message}); run arda trust yourself in a '
+                         'terminal') from None
+    raise UsageError('arda trust must be run by the user in a terminal, not by an agent')
+
+
 def cmd_trust(herdr, args):
     """Record, show or revoke the user's approval of ARDA peer communication."""
     script = ROOT / 'bin' / 'arda'
     if args.status:
         lines = trust.status(script)
         return {'status': 'none', 'trust': lines}, '\n'.join(lines)
-    pane = os.environ.get('HERDR_PANE_ID')
-    if pane and not herdr.session:
-        try:
-            herdr.agent(pane)
-        except HerdrError as err:
-            if err.code != 'agent_not_found':
-                raise UsageError(f'cannot check who is running this ({err.message}); run arda trust in your '
-                                 'own terminal') from None
-        else:
-            raise UsageError('arda trust must be run by the user in a terminal, not by an agent')
+    refuse_agents(herdr)
     if not args.yes:
         lines = trust.describe(script, args.revoke)
         intro = 'arda trust --revoke --yes would:' if args.revoke else 'arda trust --yes would:'

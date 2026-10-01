@@ -1,9 +1,11 @@
 import json
+import os
 import shutil
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from test_cli import CliCase
+from test_cli import CliCase, agent
 
 from arda import trust
 from arda.cli import ROOT
@@ -44,6 +46,9 @@ class TrustTests(CliCase):
         settings = self.settings()
         self.assertEqual(settings['model'], 'x')
         self.assertEqual(settings['permissions']['allow'], ['Bash(ls)', 'Bash(arda *)', f'Bash({SCRIPT} *)'])
+        self.assertEqual(settings['permissions']['deny'], ['Bash(arda trust)', 'Bash(arda trust *)',
+                                                           f'Bash({SCRIPT} trust)', f'Bash({SCRIPT} trust *)'])
+        self.assertIn('decision="forbidden"', (self.codex / 'rules' / 'arda.rules').read_text())
         self.assertIn(json.dumps([str(SCRIPT)]), (self.codex / 'rules' / 'arda.rules').read_text())
         agents = (self.codex / 'AGENTS.md').read_text()
         self.assertTrue(agents.startswith('# My own instructions\n\n<!-- arda-trust:begin -->'))
@@ -64,13 +69,58 @@ class TrustTests(CliCase):
 
     def test_an_agent_cannot_grant_itself_trust(self):
         self.env['HERDR_PANE_ID'] = 'w1:p1'  # claude's pane in the fake session
-        code, _, err = self.run_cli('trust', '--yes')
-        self.assertEqual(code, 2)
-        self.assertIn('not by an agent', err)
+        for extra in ([], ['--session', 'anything']):
+            code, _, err = self.run_cli('trust', '--yes', *extra)
+            self.assertEqual(code, 2, extra)
+            self.assertIn('not by an agent', err)
+        with mock.patch('arda.cli._under_herdr', return_value=True):  # inside Herdr, pane variable removed
+            self.assertEqual(self.run_cli('trust', '--yes', env={'HERDR_PANE_ID': None})[0], 2)
+        self.set_agents(agent('claude', 'w1:p1'), shell_pid=999999999)  # names a pane it is not running in
+        self.env['HERDR_PANE_ID'] = 'w1:p9'
+        self.assertEqual(self.run_cli('trust', '--yes')[0], 2)
         self.assertFalse((self.claude / 'rules').exists())
+        self.assertFalse((self.codex / 'rules').exists())
+
+    def test_a_terminal_outside_herdr_may_grant_trust(self):
+        with mock.patch('arda.cli._under_herdr', return_value=False):
+            self.assertEqual(self.run_cli('trust', '--yes', env={'HERDR_PANE_ID': None})[0], 0)
+
+    def test_marked_section_is_found_only_when_intact(self):
+        agents = self.codex / 'AGENTS.md'
+        agents.write_text('# Mine\nI mention <!-- arda-trust:begin --> inline.\n')
+        self.run_cli('trust', '--yes')
+        self.run_cli('trust', '--revoke', '--yes')
+        self.assertEqual(agents.read_text(), '# Mine\nI mention <!-- arda-trust:begin --> inline.\n')
+        for broken in ('a\n<!-- arda-trust:end -->\nb\n<!-- arda-trust:begin -->\n',
+                       '<!-- arda-trust:begin -->\nx\n<!-- arda-trust:begin -->\n<!-- arda-trust:end -->\n'):
+            agents.write_text(broken)
+            self.assertEqual(self.run_cli('trust', '--yes')[0], 2)
+            self.assertEqual(agents.read_text(), broken)
+            self.assertFalse((self.claude / 'rules' / 'arda.md').exists())
+
+    def test_files_arda_did_not_write_are_left_alone(self):
+        foreign = self.claude / 'rules' / 'arda.md'
+        foreign.parent.mkdir()
+        foreign.write_text('my own notes about arda\n')
+        self.assertEqual(self.run_cli('trust', '--yes')[0], 2)
+        self.run_cli('trust', '--revoke', '--yes')
+        self.assertEqual(foreign.read_text(), 'my own notes about arda\n')
+
+    def test_symlinked_settings_are_updated_in_place(self):
+        real = Path(self.tmp.name) / 'dotfiles-settings.json'
+        real.write_text(json.dumps({'permissions': {'allow': []}}))
+        os.chmod(real, 0o600)
+        link = self.claude / 'settings.json'
+        link.unlink()
+        link.symlink_to(real)
+        self.assertEqual(self.run_cli('trust', '--yes')[0], 0)
+        self.assertTrue(link.is_symlink())
+        self.assertIn('Bash(arda *)', json.loads(real.read_text())['permissions']['allow'])
+        self.assertEqual(real.stat().st_mode & 0o777, 0o600)
 
     def test_unexpected_settings_stop_the_change_before_anything_is_written(self):
-        for bad in ('[]', '{not json', '{"permissions": []}', '{"permissions": {"allow": "x"}}'):
+        for bad in ('[]', '{not json', '{"permissions": []}', '{"permissions": {"allow": "x"}}',
+                    '{"permissions": {"deny": {}}}'):
             (self.claude / 'settings.json').write_text(bad)
             self.assertEqual(self.run_cli('trust', '--yes')[0], 2, bad)
             self.assertEqual((self.claude / 'settings.json').read_text(), bad)
@@ -85,10 +135,10 @@ class TrustTests(CliCase):
 
     @unittest.skipUnless(shutil.which('codex'), 'codex is not installed')
     def test_codex_accepts_the_generated_rules(self):
-        rules = Path(self.tmp.name) / 'arda.rules'
-        rules.write_text(trust.CODEX_RULES.format(paths=json.dumps([str(SCRIPT)])))
-        trust._check_codex_rules(rules, SCRIPT)  # raises (and deletes the file) if Codex rejects it
-        self.assertTrue(rules.exists())
+        # raises unless Codex allows arda and forbids `arda trust` with these rules
+        trust._check_codex_rules(trust.CODEX_RULES.format(paths=json.dumps([str(SCRIPT)])), SCRIPT)
+        with self.assertRaises(trust.TrustError):
+            trust._check_codex_rules('prefix_rule(pattern=["arda"], decision="allow")\n', SCRIPT)
 
 
 if __name__ == '__main__':
