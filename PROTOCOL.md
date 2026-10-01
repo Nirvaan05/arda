@@ -1,6 +1,6 @@
 # ARDA protocol: arda/1
 
-ARDA defines how agents in a Herdr session address each other and what their messages
+ARDA defines how agents in a Herdr environment address each other and what their messages
 mean. Herdr provides everything else: the session, agent discovery and state, and the
 delivery of text to an agent. ARDA keeps no state between messages. Everything needed
 to answer a message is contained in the message itself.
@@ -14,11 +14,13 @@ An address names a participant, not a terminal.
 | `@codex` | The live Herdr agent named `codex`, wherever it runs in the sender's Herdr environment. |
 | `@codex@desktop` | The agent `codex` in the place `desktop`: a Herdr session on this machine or a saved Herdr machine. Needed only when the name runs in more than one place. |
 | `@claude.1806d161` | The agent `claude` whose Herdr terminal ID ends in `1806d161`. Senders identify themselves this way, so replies reach them and no other agent with the same name. |
-| `w1:p2`, `w1:p2@desktop` | A Herdr pane ID, for agents without a name. A route in one Herdr server, not an identity. |
-| `@arda` | Reserved for messages from ARDA itself, such as introductions. It cannot be addressed, and an agent named `arda` cannot send. |
+| `w1:p2`, `w1:p2@desktop` | A Herdr pane ID, for agents without a name. A route in one Herdr server, not an identity; an agent without a name can only message agents in its own place. |
+| `@arda` | Reserved for messages from ARDA itself, such as introductions. It cannot be addressed, and an agent named `arda` cannot send. Like every sender, it is not authenticated. |
 
 Names follow Herdr's agent-name rules (`[a-z][a-z0-9_-]{0,31}`); place names are the
-lowercased Herdr session name or saved-machine label (`[a-z0-9][a-z0-9._-]{0,62}`).
+lowercased Herdr session name or saved-machine label (`[a-z0-9][a-z0-9._-]{0,62}`); a name that does
+not fit, or that two places share, is rewritten or given a short suffix, and `arda peers` shows the
+name to use.
 
 The sender's Herdr environment is its own Herdr session, every other running Herdr
 session on its machine, and every enabled machine saved in Herdr, which Herdr reaches

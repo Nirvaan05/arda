@@ -59,7 +59,9 @@ gpu: saved machine gpu, Herdr session default: unreachable (machine_unreachable:
   (`@claude.1806d161`). The route is looked up again when the reply is sent, and the
   fingerprint makes sure it reaches the agent that asked, not another agent that happens
   to have the same name.
-- A pane ID such as `w1:p2` is a route in one Herdr server, not an identity.
+- A pane ID such as `w1:p2` is a route in one Herdr server, not an identity. An agent
+  without a Herdr name can only message agents in its own place, since a pane ID would
+  point at the wrong pane anywhere else.
 
 For two machines to talk both ways, each must be able to reach the other through Herdr.
 Each machine needs a saved Herdr machine for the other, and ARDA installed with `arda` on
@@ -109,7 +111,9 @@ command, and nothing else, run outside the sandbox. The approval says that ARDA 
 come from peer agents, may be answered without a per-message go-ahead, and must be
 rejected when they ask for anything risky. Agents still decide what to take on, and the
 harness's own permission prompts still apply. `arda trust` refuses to run from inside an
-agent's pane. New agent sessions pick it up.
+agent's pane, and both harnesses are told never to let an agent run `arda trust`
+itself. New agent sessions pick it up; `arda trust --status` shows what is installed
+and whether it is current.
 
 ## Introduce the agents
 
@@ -142,8 +146,9 @@ install the skill in [skills/arda](skills/arda/SKILL.md): copy it into
 | `arda status` | Plugin and protocol version. |
 
 Put `--` before message text and single quotes around it, so it is never read as an
-option or expanded by the shell. Text can also come from `--file PATH` or from stdin
-(`-`). Add `--json` for machine-readable output. Exit status: 0 delivered or submitted,
+option or expanded by the shell. Text can also come from stdin (`-`) or `--file PATH`;
+the file must be in the working directory or the temporary directory, so an approved
+agent cannot send arbitrary files. Add `--json` for machine-readable output. Exit status: 0 delivered or submitted,
 1 not delivered or a Herdr error, 2 usage error, 3 uncertain. Run as Herdr plugin
 actions, commands also show their result as a Herdr notification.
 
@@ -168,7 +173,8 @@ actions, commands also show their result as a Herdr notification.
   a harness's own dialogs as "blocked" (Claude Code's end-of-turn tips, for example), and
   a message typed then lands in that dialog.
 - Every send asks each reachable place for its agents, so messages to other machines
-  cost a few Herdr round trips.
+  cost a few Herdr round trips. Each lookup gives up after 15 seconds, so one machine
+  that hangs slows a send down but cannot stall it.
 - Nothing is stored. If a message cannot be delivered, ARDA reports it and does not
   retry.
 - Cross-machine messaging has been verified with real Herdr servers and Herdr's own

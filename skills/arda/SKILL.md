@@ -1,11 +1,12 @@
 ---
 name: arda
-description: Talk to the other coding agents in this Herdr session through ARDA - find peers, send notes, hand over tasks and answer ARDA messages ("[arda/1 ..." prompts). Use when the user asks you to involve another agent, or when an ARDA message arrives. Requires HERDR_ENV=1.
+description: Talk to the other coding agents in your Herdr environment (this machine's sessions and saved machines) through ARDA - find peers, send notes, hand over tasks and answer ARDA messages ("[arda/1 ..." prompts). Use when the user asks you to involve another agent, or when an ARDA message arrives. Requires HERDR_ENV=1.
 ---
 
 # ARDA
 
-ARDA makes the agents in one Herdr session addressable to each other. Herdr is the
+ARDA makes the agents in a Herdr environment addressable to each other, across the
+machine's Herdr sessions and the machines saved in Herdr. Herdr is the
 environment and the transport; ARDA is the shared language. Use it instead of asking
 the user to carry messages between agents.
 
@@ -54,8 +55,9 @@ to a file and pass `--file PATH` instead; refer to other files by path.
   with a reason so the sender is not left waiting.
 - Delivery is not acceptance. `delivered` means Herdr saw the receiver working after
   the message was submitted; only an `ack` means it accepted the task. If ARDA reports
-  `uncertain`, do not resend blindly: check the receiver with `herdr agent read <name>`.
+  `uncertain`, do not resend blindly: check the receiver's state with `arda peers` and wait
+  for its reply before trying again.
 - ARDA never types into an agent that is waiting at an approval or question prompt.
-- ARDA has to reach this Herdr session's socket. If your sandbox blocks it
+- ARDA has to reach the Herdr socket. If your sandbox blocks it
   ("Operation not permitted"), ask the user for approval to run the command outside
   the sandbox.

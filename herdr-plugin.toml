@@ -14,6 +14,6 @@ command = ["python3", "-m", "arda", "status"]
 [[actions]]
 id = "introduce"
 title = "ARDA: introduce the agents to each other"
-description = "Tell every idle named agent in this session its ARDA address, its peers and how to reach them."
+description = "Tell every idle named agent in every reachable Herdr session and machine its ARDA address, its peers and how to reach them."
 contexts = ["global", "workspace"]
 command = ["python3", "-m", "arda", "introduce"]
