@@ -1,0 +1,4 @@
+#!/bin/sh
+# Run ARDA from its plugin root, wherever this script is invoked or linked from.
+root=$(dirname -- "$(dirname -- "$(readlink -f -- "$0")")")
+PYTHONPATH="$root${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m arda "$@"
