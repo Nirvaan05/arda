@@ -18,7 +18,9 @@ def agent(name, pane, status='idle', kind=None, **extra):
     return {'name': name, 'agent': kind or name, 'agent_status': status, 'pane_id': pane, **extra}
 
 
-class CliTests(unittest.TestCase):
+class CliCase(unittest.TestCase):
+    """Runs the CLI in-process against tests/fake_herdr.py."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -52,6 +54,8 @@ class CliTests(unittest.TestCase):
                 code = exit_.code
         return code, out.getvalue(), err.getvalue()
 
+
+class CliTests(CliCase):
     def test_whoami_and_peers(self):
         code, out, _ = self.run_cli('whoami')
         self.assertEqual((code, out.strip()), (0, '@claude (claude) at w1:p1'))
@@ -137,6 +141,12 @@ class CliTests(unittest.TestCase):
             code, out, _ = self.run_cli('whoami', '--json')
             self.assertEqual(code, 1, raw)
             self.assertIn(json.loads(out)['error'], ('herdr_failed', 'unexpected_reply'))
+
+    def test_a_sandbox_blocking_the_socket_is_explained(self):
+        self.set_agents(raw='Error: Os { code: 1, kind: PermissionDenied, message: "Operation not permitted" }')
+        code, out, err = self.run_cli('peers', '--json')
+        self.assertEqual((code, json.loads(out)['error']), (1, 'socket_denied'))
+        self.assertIn('sandbox', err)
 
     def test_session_option_reaches_herdr(self):
         self.run_cli('peers', '--session', 'demo')

@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import __version__
+from . import __version__, trust
 from .envelope import (
     MAX_BODY,
     PROTOCOL,
@@ -299,6 +299,33 @@ def cmd_introduce(herdr, args):
     return {'status': status, 'results': results}, '\n'.join(lines)
 
 
+def cmd_trust(herdr, args):
+    """Record, show or revoke the user's approval of ARDA peer communication."""
+    script = ROOT / 'bin' / 'arda'
+    if args.status:
+        lines = trust.status(script)
+        return {'status': 'none', 'trust': lines}, '\n'.join(lines)
+    pane = os.environ.get('HERDR_PANE_ID')
+    if pane and not herdr.session:
+        try:
+            herdr.agent(pane)
+        except HerdrError as err:
+            if err.code != 'agent_not_found':
+                raise UsageError(f'cannot check who is running this ({err.message}); run arda trust in your '
+                                 'own terminal') from None
+        else:
+            raise UsageError('arda trust must be run by the user in a terminal, not by an agent')
+    if not args.yes:
+        lines = trust.describe(script, args.revoke)
+        intro = 'arda trust --revoke --yes would:' if args.revoke else 'arda trust --yes would:'
+        text = '\n'.join([intro, *lines, 'Nothing was changed.'] if lines else ['nothing to do'])
+        return {'status': 'none', 'plan': lines}, text
+    done = trust.apply(script, revoke=args.revoke)
+    note = ('Start new agent sessions (or /clear in Claude Code) for this to take effect.' if done
+            else 'Nothing needed changing.')
+    return {'status': 'none', 'changed': done}, '\n'.join([*done, note])
+
+
 def notify(herdr, text):
     """Show a result in Herdr's UI. Output of UI-launched plugin actions only reaches a log."""
     if not os.environ.get('HERDR_PLUGIN_ID'):
@@ -373,6 +400,13 @@ def parser():
     sub.add_argument('id', help='id of the task being accepted')
     sub.add_argument('text', nargs='?', help='optional short note')
 
+    sub = commands.add_parser('trust', parents=[common], allow_abbrev=False,
+                              help="record the user's one-time approval of ARDA peer messages in Claude Code "
+                                   'and Codex configuration (run it yourself, in a terminal)')
+    sub.add_argument('--yes', action='store_true', help='apply the change; without it, only show what it would do')
+    sub.add_argument('--revoke', action='store_true', help='remove what arda trust added')
+    sub.add_argument('--status', action='store_true', help='show whether trust is installed')
+
     for name, what in (('result', 'return the result of a task'), ('reject', 'decline or abandon a task')):
         sub = commands.add_parser(name, parents=[sending], allow_abbrev=False, help=what)
         sub.add_argument('to', help='the agent that sent the task')
@@ -389,7 +423,7 @@ def parser():
 HANDLERS = {
     'status': cmd_status, 'whoami': cmd_whoami, 'peers': cmd_peers, 'send': cmd_send,
     'task': cmd_task, 'ack': cmd_ack, 'result': cmd_result, 'reject': cmd_reject,
-    'introduce': cmd_introduce,
+    'introduce': cmd_introduce, 'trust': cmd_trust,
 }
 EXIT_FOR_STATUS = {'delivered': EXIT_OK, 'submitted': EXIT_OK, 'uncertain': EXIT_UNCERTAIN,
                    'not_delivered': EXIT_FAILED}
@@ -408,7 +442,7 @@ def main(argv=None):
     herdr = Herdr(session=args.session)
     try:
         data, text = HANDLERS[args.command](herdr, args)
-    except (UsageError, EnvelopeError, OSError, UnicodeDecodeError) as err:
+    except (UsageError, EnvelopeError, trust.TrustError, OSError, UnicodeDecodeError) as err:
         return fail(herdr, args, 'usage', str(err), EXIT_USAGE)
     except HerdrError as err:
         return fail(herdr, args, err.code, f'herdr: {err.message}', EXIT_FAILED)
