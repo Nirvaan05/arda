@@ -9,7 +9,16 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .envelope import MAX_BODY, PROTOCOL, SYSTEM, Message, address, clean, target
+from .envelope import (
+    MAX_BODY,
+    PROTOCOL,
+    SYSTEM,
+    EnvelopeError,
+    Message,
+    address,
+    clean,
+    target,
+)
 from .herdr import Herdr, HerdrError
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -61,8 +70,9 @@ def identity(herdr):
 def require_identity(herdr):
     me = identity(herdr)
     if me is None:
-        raise UsageError('not running inside a Herdr pane (HERDR_PANE_ID is not set); '
-                         'ARDA messages are sent by agents from their own pane')
+        where = ('--session is for use outside Herdr' if herdr.session
+                 else 'not running inside a Herdr pane (HERDR_PANE_ID is not set)')
+        raise UsageError(f'{where}; ARDA messages are sent by agents from their own pane')
     return me
 
 
@@ -111,6 +121,8 @@ def deliver(herdr, message, force=False, skip_busy=False):
 
 
 def read_body(text, path):
+    if path and text:
+        raise UsageError('give the message text or --file, not both')
     if path:
         text = Path(path).read_text()
     elif text == '-':
@@ -336,7 +348,7 @@ def main(argv=None):
     herdr = Herdr(session=args.session)
     try:
         data, text = HANDLERS[args.command](herdr, args)
-    except (UsageError, ValueError, OSError) as err:
+    except (UsageError, EnvelopeError, OSError, UnicodeDecodeError) as err:
         return fail(herdr, args, 'usage', str(err), EXIT_USAGE)
     except HerdrError as err:
         return fail(herdr, args, err.code, f'herdr: {err.message}', EXIT_FAILED)

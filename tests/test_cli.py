@@ -216,6 +216,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(self.run_cli('send', '@codex', '   ')[0], 2)
         self.assertEqual(self.run_cli('send', '@codex', '\x1b\x07 ')[0], 2)
         self.assertEqual(self.run_cli('send', '@arda', 'x')[0], 2)
+        self.assertEqual(self.run_cli('send', '@codex', 'x', '--file', __file__)[0], 2)
         self.assertEqual(self.run_cli('send', '@codex', 'x' * (MAX_BODY + 1))[0], 2)
         self.assertEqual(self.run_cli('send', 'Bad Name', 'x')[0], 2)
         self.assertEqual(self.run_cli('task', '@codex', 'x', env={'HERDR_PANE_ID': None})[0], 2)

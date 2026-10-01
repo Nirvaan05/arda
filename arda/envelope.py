@@ -30,7 +30,11 @@ _MARKER = re.compile(r'^(\s*)(\\*)(\[arda)', re.IGNORECASE | re.MULTILINE)
 _ESCAPED = re.compile(r'^(\s*)\\(\\*)(\[arda)', re.IGNORECASE | re.MULTILINE)
 
 
-class AddressError(ValueError):
+class EnvelopeError(ValueError):
+    """A message or address that does not fit arda/1."""
+
+
+class AddressError(EnvelopeError):
     pass
 
 
@@ -83,15 +87,15 @@ class Message:
 
     def __post_init__(self):
         if self.type not in TYPES:
-            raise ValueError(f'unknown message type: {self.type}')
+            raise EnvelopeError(f'unknown message type: {self.type}')
         if (self.type in REPLY_TYPES) != (self.re is not None):
-            raise ValueError(f'{self.type} messages {"need" if self.type in REPLY_TYPES else "cannot have"} re=')
+            raise EnvelopeError(f'{self.type} messages {"need" if self.type in REPLY_TYPES else "cannot have"} re=')
         for name, value in (('id', self.id), ('re', self.re)):
             if value is not None and not _ID.match(value):
-                raise ValueError(f'{name} must be six lowercase hex digits, not {value!r}')
+                raise EnvelopeError(f'{name} must be six lowercase hex digits, not {value!r}')
         for name, value in (('from', self.sender), ('to', self.recipient)):
             if not is_address(value):
-                raise ValueError(f'{name} is not an ARDA address: {value!r}')
+                raise EnvelopeError(f'{name} is not an ARDA address: {value!r}')
 
     def header(self):
         fields = [f'id={self.id}']
@@ -142,5 +146,5 @@ def parse(text):
             type=match['type'], sender=fields['from'], recipient=fields['to'],
             body=unescape('\n'.join(body)), re=fields.get('re'), id=fields['id'],
         )
-    except (KeyError, ValueError):
+    except (KeyError, EnvelopeError):
         return None
