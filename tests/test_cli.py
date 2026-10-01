@@ -231,6 +231,16 @@ class CliTests(unittest.TestCase):
         code, out, _ = self.run_cli('introduce', '--json')
         self.assertEqual((code, json.loads(out)['status']), (0, 'none'))
 
+    def test_introduce_skips_names_that_are_not_addresses_and_never_itself(self):
+        self.set_agents(agent('claude', 'w1:p1'), agent('arda', 'w1:p3', kind='codex'), agent('codex', 'w1:p2'))
+        code, out, _ = self.run_cli('introduce')
+        self.assertEqual(code, 0)
+        self.assertEqual([p['target'] for p in self.prompts()], ['codex'])
+        self.assertIn("skipped w1:p3 (codex): its name 'arda' cannot be an ARDA address", out)
+        self.assertNotIn('@arda', parse(self.prompts()[0]['text']).body)
+        self.run_cli('introduce', '@claude', 'w1:p1')
+        self.assertEqual(len(self.prompts()), 1)
+
     def test_plugin_actions_report_through_a_notification(self):
         code, _, _ = self.run_cli('status', env={'HERDR_PLUGIN_ID': 'arda'})
         self.assertEqual(code, 0)

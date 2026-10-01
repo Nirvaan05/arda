@@ -46,6 +46,8 @@ def command():
     found = shutil.which('arda')
     if found and Path(found).resolve() == script.resolve():
         return 'arda'
+    if clean(str(script)) != str(script):  # a path with control characters cannot be typed safely
+        return 'arda'
     return shlex.quote(str(script))
 
 
@@ -226,12 +228,26 @@ def cmd_introduce(herdr, args):
     """Tell agents their own address, their peers and how to reach them."""
     me = identity(herdr)
     agents = herdr.agents()
-    named = [agent for agent in agents if agent.get('name')]
+    lines = []
+    named = []
+    for agent in agents:
+        try:
+            if agent.get('name'):
+                target(agent['name'])  # raises for names that cannot be ARDA addresses
+                named.append(agent)
+                continue
+            reason = 'it has no name'
+        except EnvelopeError:
+            reason = f'its name {agent["name"]!r} cannot be an ARDA address'
+        if not args.to:
+            lines.append(f'skipped {agent["pane_id"]} ({agent.get("agent") or "?"}): {reason}. '
+                         f'Name it with: herdr agent rename {agent["pane_id"]} <name>')
+    mine = (me['name'], me['pane_id']) if me else ()
     if args.to:
-        recipients = [target(to) for to in args.to]
+        recipients = [route for route in (target(to) for to in args.to) if route not in mine]
     else:
-        recipients = [agent['name'] for agent in named if not (me and agent['pane_id'] == me['pane_id'])]
-    results, lines = [], []
+        recipients = [agent['name'] for agent in named if agent['pane_id'] not in mine]
+    results = []
     for name in recipients:
         peers = [f'@{agent["name"]} ({agent.get("agent") or "?"})' for agent in named if agent['name'] != name]
         body = INTRODUCTION.format(me=address(name), peers=', '.join(peers) or 'none yet', cmd=command())
@@ -242,10 +258,6 @@ def cmd_introduce(herdr, args):
             result = {'status': 'not_delivered', 'to': message.recipient, 'detail': f'herdr: {err.message}'}
         results.append(result)
         lines.append(f'{result["status"]}: {result["to"]}: {result["detail"]}')
-    for agent in [] if args.to else agents:
-        if not agent.get('name'):
-            lines.append(f'skipped {agent["pane_id"]} ({agent.get("agent") or "?"}): it has no name. '
-                         f'Name it with: herdr agent rename {agent["pane_id"]} <name>')
     if not results:
         return {'status': 'none', 'results': []}, '\n'.join(lines + ['no named agents to introduce'])
     statuses = {result['status'] for result in results}
