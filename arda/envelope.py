@@ -21,6 +21,9 @@ MAX_BODY = 32000  # bytes of UTF-8; Linux limits one command-line argument to 12
 
 _NAME = re.compile(r'[a-z][a-z0-9_-]{0,31}')
 _PANE = re.compile(r'w([0-9]+):p([0-9]+)')
+_PLACE = re.compile(r'[a-z0-9][a-z0-9._-]{0,62}')
+_FINGERPRINT = re.compile(r'[0-9a-f]{8}')
+_ADDRESS = re.compile(r'(?P<route>@[^@#\s]+|w[0-9]+:p[0-9]+)(?:#(?P<fp>[^@\s]+))?(?:@(?P<place>\S+))?')
 _ID = re.compile(r'[0-9a-f]{6}')
 _HEADER = re.compile(r'\[arda/1 (?P<type>[a-z_]+)(?P<fields>(?: [a-z]+=\S+)*)\]')
 _FIELDS = ('id', 're', 'from', 'to')
@@ -61,25 +64,82 @@ def _pane(value):
     return f'w{int(match[1])}:p{int(match[2])}' if match else None
 
 
+@dataclass(frozen=True)
+class Address:
+    """Who a message is for, and optionally where and which one.
+
+    `@codex` names an agent; ARDA finds where it lives across the Herdr
+    environment. `@codex@desktop` names the place (a Herdr session or saved
+    machine) when the name alone is ambiguous. `@codex#5806d161` adds a
+    fingerprint of the agent's Herdr terminal, so a reply reaches the agent
+    that sent the message and never another one that merely has its name.
+    A pane ID such as `w1:p2` is a route in one Herdr server, not an identity.
+    """
+    route: str
+    place: str | None = None
+    fingerprint: str | None = None
+
+    @property
+    def name(self):
+        return None if _pane(self.route) else self.route
+
+    def __str__(self):
+        text = self.route if self.name is None else f'@{self.route}'
+        if self.fingerprint:
+            text += f'#{self.fingerprint}'
+        return f'{text}@{self.place}' if self.place else text
+
+
+def parse_address(text):
+    """Parse an address such as `@codex`, `codex`, `@codex@desktop`, `@codex#5806d161` or `w1:p2`."""
+    value = text.strip()
+    if value and value[0] != '@' and not _PANE.match(value):
+        value = '@' + value
+    match = _ADDRESS.fullmatch(value)
+    if not match:
+        raise AddressError(f'not an agent address: {text!r} (expected @name, @name@place or a pane ID such as w1:p2)')
+    route, fingerprint, place = match['route'], match['fp'], match['place']
+    if route.startswith('@'):
+        route = route[1:]
+        if not _NAME.fullmatch(route):
+            raise AddressError(f'not an agent name: {text!r}')
+        if f'@{route}' == SYSTEM:
+            raise AddressError(f'{SYSTEM} is reserved for ARDA itself')
+    else:
+        route = _pane(route)
+        if fingerprint:
+            raise AddressError(f'a pane ID cannot carry a fingerprint: {text!r}')
+    if fingerprint is not None and not _FINGERPRINT.fullmatch(fingerprint):
+        raise AddressError(f'not an agent fingerprint: {text!r}')
+    if place is not None and not _PLACE.fullmatch(place):
+        raise AddressError(f'not a place name: {text!r}')
+    return Address(route, place, fingerprint)
+
+
 def target(address):
-    """Return the Herdr target for an address: `@codex`, `codex` or a pane ID."""
-    value = address.strip()
-    if pane := _pane(value):
-        return pane
-    name = value.removeprefix('@')
-    if not _NAME.fullmatch(name):
-        raise AddressError(f'not an agent address: {address!r} (expected @name or a pane ID such as w1:p2)')
-    if f'@{name}' == SYSTEM:
-        raise AddressError(f'{SYSTEM} is reserved for ARDA itself')
-    return name
+    """The Herdr target (agent name or pane ID) of an address."""
+    return parse_address(address).route
 
 
-def address(name_or_pane):
-    return _pane(name_or_pane) or f'@{name_or_pane}'
+def fingerprint(terminal_id):
+    """Short stable fingerprint of a Herdr terminal ID: its last 8 hex digits (term_65cc151806d161 -> 1806d161)."""
+    digits = ''.join(char for char in (terminal_id or '') if char in '0123456789abcdef')
+    return digits[-8:] if len(digits) >= 8 else None
+
+
+def address(name_or_pane, place=None, fp=None):
+    route = _pane(name_or_pane) or name_or_pane
+    return str(Address(route, place, fp if not _pane(route) else None))
 
 
 def is_address(value):
-    return _pane(value) == value or (value.startswith('@') and bool(_NAME.fullmatch(value[1:])))
+    """Whether value is a canonical address, as written into message headers."""
+    if value == SYSTEM:
+        return True
+    try:
+        return str(parse_address(value)) == value
+    except AddressError:
+        return False
 
 
 @dataclass(frozen=True)
