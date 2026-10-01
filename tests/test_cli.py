@@ -115,6 +115,7 @@ class CliTests(unittest.TestCase):
 
     def test_plain_shell_pane_can_send_notes_but_not_tasks(self):
         self.env['HERDR_PANE_ID'] = 'w1:p9'  # a pane with no agent in it
+        self.assertIn('no agent runs in this pane', self.run_cli('whoami')[1])
         self.assertEqual(self.run_cli('task', '@codex', 'x')[0], 2)
         self.assertEqual(self.run_cli('send', '@codex', 'x')[0], 0)
         self.assertEqual(parse(self.prompts()[0]['text']).sender, 'w1:p9')

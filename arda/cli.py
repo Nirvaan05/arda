@@ -146,10 +146,12 @@ def cmd_status(herdr, args):
 
 def cmd_whoami(herdr, args):
     me = require_identity(herdr)
-    kind = f' ({me["agent"]})' if me['agent'] else ''
+    if not me['agent']:
+        return me, (f'{me["pane_id"]}: no agent runs in this pane. You can send notes from here, '
+                    'but nothing can be delivered to this pane.')
     hint = '' if me['name'] else ('\nYou have no Herdr agent name, so peers can reach you only by pane ID. '
                                   f'Name yourself with: herdr agent rename {me["pane_id"]} <name>')
-    return me, f'{me["address"]}{kind} at {me["pane_id"]}{hint}'
+    return me, f'{me["address"]} ({me["agent"]}) at {me["pane_id"]}{hint}'
 
 
 def cmd_peers(herdr, args):
