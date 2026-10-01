@@ -118,6 +118,29 @@ class CliTests(unittest.TestCase):
         self.run_cli('send', '@codex', 'hi')
         self.assertEqual(parse(self.prompts()[0]['text']).sender, 'w1:p1')
 
+    def test_introduce_tells_each_idle_peer_who_it_is_and_who_is_here(self):
+        self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2'),
+                        agent('reviewer', 'w1:p3', status='working', kind='codex'), agent(None, 'w1:p4', kind='pi'))
+        code, out, _ = self.run_cli('introduce')
+        self.assertEqual(code, 1)  # the busy reviewer was not introduced
+        [prompt] = self.prompts()
+        message = parse(prompt['text'])
+        self.assertEqual((prompt['target'], message.sender, message.type), ('codex', '@claude', 'note'))
+        self.assertIn('You are @codex.', message.body)
+        self.assertIn('@claude (claude), @reviewer (codex)', message.body)
+        self.assertIn('@reviewer: @reviewer is busy', out)
+        self.assertIn('herdr agent rename w1:p4 <name>', out)
+
+    def test_introduce_as_plugin_action_speaks_for_arda(self):
+        code, _, _ = self.run_cli('introduce', env={'HERDR_PLUGIN_ID': 'arda'})
+        self.assertEqual(code, 0)
+        texts = [p['text'] for p in self.prompts()]
+        self.assertEqual([p['target'] for p in self.prompts()], ['claude', 'codex'])
+        self.assertTrue(all(parse(text).sender == '@arda' for text in texts))
+        self.assertIn('[arda] From ARDA itself. No reply needed.', texts[0])
+        notifications = json.loads(self.state_path.read_text())['notifications']
+        self.assertEqual(notifications[0][0], 'ARDA')
+
     def test_usage_errors(self):
         self.assertEqual(self.run_cli('send', '@claude', 'me')[0], 2)
         self.assertEqual(self.run_cli('send', '@codex', '   ')[0], 2)

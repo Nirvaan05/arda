@@ -1,7 +1,7 @@
 """Minimal stand-in for the `herdr` CLI, driven by a JSON state file.
 
 State: {"agents": [{name, agent, agent_status, pane_id, prompt_error?}], "prompts": []}.
-Each accepted `agent prompt` is appended to "prompts".
+Each accepted `agent prompt` is appended to "prompts", each notification to "notifications".
 """
 
 import json
@@ -35,6 +35,11 @@ def main(argv):
         reply({'type': 'agent_list', 'agents': agents})
     if argv[:2] == ['agent', 'get']:
         reply({'type': 'agent_info', 'agent': find(argv[2])})
+    if argv[:2] == ['notification', 'show']:
+        state.setdefault('notifications', []).append(argv[2:])
+        with open(path, 'w') as handle:
+            json.dump(state, handle)
+        reply({'type': 'ok'})
     if argv[:2] == ['agent', 'prompt']:
         agent = find(argv[2])
         if agent['agent_status'] == 'blocked':
