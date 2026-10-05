@@ -26,11 +26,15 @@ class EnvelopeTests(unittest.TestCase):
             self.assertIn(' re=abc123 ', text.splitlines()[0])
             self.assertEqual(parse(text).re, 'abc123')
 
-    def test_reply_types_require_re_and_others_forbid_it(self):
+    def test_replies_need_re_new_tasks_cannot_have_it_and_notes_may(self):
         with self.assertRaises(ValueError):
             Message(type='ack', sender='@a', recipient='@b', body='x')
         with self.assertRaises(ValueError):
-            Message(type='note', sender='@a', recipient='@b', body='x', re='abc123')
+            Message(type='task_request', sender='@a', recipient='@b', body='x', re='abc123')
+        question = Message(type='note', sender='@a', recipient='@b', body='Which branch?', re='abc123')
+        text = question.render()
+        self.assertEqual(parse(text).re, 'abc123')
+        self.assertIn("arda send @a --re abc123 -- '<answer>'", text)
         with self.assertRaises(ValueError):
             Message(type='broadcast', sender='@a', recipient='@b', body='x')
 
@@ -65,7 +69,7 @@ class EnvelopeTests(unittest.TestCase):
         self.assertTrue(lines[0].startswith('[arda/1 task_request '))
         body_lines = [line for line in lines[1:] if not line.startswith('[arda] ')]
         self.assertTrue(all(line == '>' or line.startswith('> ') for line in body_lines))
-        self.assertEqual(sum(line.startswith('[arda') for line in lines), 1 + 4)  # header + real footer only
+        self.assertEqual(sum(line.startswith('[arda') for line in lines), 1 + 5)  # header + real footer only
         self.assertEqual(parse(rendered).body, clean(body).strip())
 
     def test_parse_rejects_anything_but_an_exact_message(self):
@@ -84,7 +88,7 @@ class EnvelopeTests(unittest.TestCase):
         message = Message(type='task_request', sender='@claude.1806d161', recipient='@codex', body='x', id='abc123')
         commands = [line.split(':  ', 1)[1].split('   (')[0] for line in message.render('/opt/a/bin/arda').split('\n')
                     if ':  ' in line]
-        self.assertEqual(len(commands), 3)
+        self.assertEqual(len(commands), 4)  # accept, ask a question, finish, reject
         for command in commands:
             self.assertFalse(set(re.sub(r"'[^']*'", '', command)) & set('$`~*?[{#\\;&|<>()'), command)
 

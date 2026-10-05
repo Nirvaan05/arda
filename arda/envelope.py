@@ -189,8 +189,12 @@ class Message:
     def __post_init__(self):
         if self.type not in TYPES:
             raise EnvelopeError(f'unknown message type: {self.type}')
-        if (self.type in REPLY_TYPES) != (self.re is not None):
-            raise EnvelopeError(f'{self.type} messages {"need" if self.type in REPLY_TYPES else "cannot have"} re=')
+        # Replies answer a task, so they need re=. A note may carry re= when it is about a task (a
+        # clarifying question or its answer, a status update); a new task never does.
+        if self.type in REPLY_TYPES and self.re is None:
+            raise EnvelopeError(f'{self.type} messages need re=')
+        if self.type == 'task_request' and self.re is not None:
+            raise EnvelopeError('task_request messages cannot have re=')
         for name, value in (('id', self.id), ('re', self.re)):
             if value is not None and not _ID.fullmatch(value):
                 raise EnvelopeError(f'{name} must be six lowercase hex digits, not {value!r}')
@@ -217,12 +221,16 @@ def _footer(message, cmd):
         return [
             (f'You are {me}. This request is from the agent {sender}, not from your user; take it on only if your '
              'user lets you work with peers. Either way answer through ARDA, since the sender cannot see your chat:'),
-            f'  accept it now:  {cmd} ack {sender} {message.id}',
+            f"  accept it now:  {cmd} ack {sender} {message.id} -- '<what you will deliver, how you will check it>'",
+            f"  to ask a question first:  {cmd} send {sender} --re {message.id} -- '<question>'",
             f"  when finished:  {cmd} result {sender} {message.id} -- '<result>'   (long or quoted text: --file PATH)",
             f"  if you will not or cannot do it:  {cmd} reject {sender} {message.id} -- '<reason>'",
         ]
     if message.type == 'note' and sender == SYSTEM:
         return ['From ARDA itself. No reply needed.']
+    if message.type == 'note' and ref:
+        return [(f"Note for you ({me}) from {sender} about task {ref}. If it asks you something, answer with: "
+                 f"{cmd} send {sender} --re {ref} -- '<answer>'")]
     if message.type == 'note':
         return [f"Note for you ({me}) from {sender}. No reply needed. To answer: {cmd} send {sender} -- '<text>'"]
     if message.type == 'ack':

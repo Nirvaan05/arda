@@ -623,7 +623,7 @@ def notify(herdr, text):
 
 
 def cmd_send(herdr, args):
-    result = send(herdr, args, 'note')
+    result = send(herdr, args, 'note', re=args.re)
     return result, summary(result)
 
 
@@ -682,6 +682,7 @@ def parsers():
     command('peers', 'list the active agents in every Herdr session and saved machine you can reach', [common])
     sub = command('send', 'send a note to another agent', [sending])
     sub.add_argument('to', help='recipient, e.g. @codex or @codex@desktop')
+    sub.add_argument('--re', metavar='ID', help='the task this note is about: a question, an answer or a status')
     body(sub)
     sub = command('task', 'ask another agent to do work', [sending])
     sub.add_argument('to', help='recipient, e.g. @codex or @codex@desktop')

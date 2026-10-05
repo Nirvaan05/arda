@@ -385,6 +385,12 @@ class CliTests(CliCase):
         self.run_cli('introduce', '@claude', 'w1:p1')
         self.assertEqual(len(self.prompts()), 1)
 
+    def test_a_note_can_be_about_a_task(self):
+        self.assertEqual(self.run_cli('send', '@codex', '--re', 'abc123', '--', 'Which branch?')[0], 0)
+        message = parse(self.prompts()[-1]['text'])
+        self.assertEqual((message.type, message.re, message.body), ('note', 'abc123', 'Which branch?'))
+        self.assertEqual(self.run_cli('send', '@codex', '--re', 'nothex', '--', 'x')[0], 2)
+
     def test_the_setup_action_reports_through_a_notification(self):
         code, _, _ = self.run_cli('setup', env={'HERDR_PLUGIN_ID': 'arda'})
         self.assertEqual(code, 0)
