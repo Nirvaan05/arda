@@ -264,6 +264,13 @@ class TrustTests(CliCase):
         self.assertIn('disable-model-invocation: true', skill.split('---')[1])
         self.assertIn('arda setup', skill)
 
+    def test_the_peers_skill_is_user_invoked_and_only_lists(self):
+        skill = (ROOT / 'skills' / 'arda-peers' / 'SKILL.md').read_text()
+        front = skill.split('---')[1]
+        self.assertIn('name: arda-peers', front)
+        self.assertIn('disable-model-invocation: true', front)
+        self.assertIn('Run `arda peers`', skill)
+
     def test_codex_override_file_takes_the_section_when_codex_reads_it(self):
         (self.codex / 'AGENTS.override.md').write_text('# Override\n')
         self.run_trust('--yes')

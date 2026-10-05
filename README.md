@@ -304,9 +304,12 @@ Claude Code and Codex are tested. Herdr types prompts only into agent kinds it s
 - **Skills.** For agents to know ARDA in every new session, install the skill in
   [skills/arda](skills/arda/SKILL.md): copy it into `$CLAUDE_CONFIG_DIR/skills/` (or a
   project's `.claude/skills/`) for Claude Code and into `~/.agents/skills/` (or a project's
-  `.agents/skills/`) for Codex. [skills/arda-setup](skills/arda-setup/SKILL.md) adds a
-  `/arda-setup` command to Claude Code that only you can invoke; it shows the setup and the
-  command to run. The Herdr action **ARDA: show setup** does the same in Herdr.
+  `.agents/skills/`) for Codex. Two more add commands to Claude Code that only you can
+  invoke: [skills/arda-peers](skills/arda-peers/SKILL.md) adds `/arda-peers`, which lists
+  the agents ARDA can reach (Claude Code's own `/list-agents` shows only Claude Code
+  sessions), and [skills/arda-setup](skills/arda-setup/SKILL.md) adds `/arda-setup`, which
+  shows the setup and the command to run. The Herdr action **ARDA: show setup** does the
+  same in Herdr.
 - **Why approval happens in a plain terminal.** Herdr and the agent harnesses offer no way
   to tell your keystroke or click in an agent's pane from the agent's own, so anything that
   approves from inside an agent's pane could be triggered by an agent. The shortcuts above
