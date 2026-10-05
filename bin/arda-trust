@@ -1,6 +1,13 @@
 #!/bin/sh
 # The user's own command for approving ARDA peer messages (see `arda-trust --help`).
-# It is separate from `arda` so that the approval, which allows `arda`, never covers it.
-# Run from the plugin root like bin/arda; -P keeps the caller's directory off sys.path.
-root=$(dirname -- "$(dirname -- "$(readlink -f -- "$0")")")
-exec python3 -P -c 'import sys; sys.path.insert(0, sys.argv.pop(1)); from arda.cli import trust_main; raise SystemExit(trust_main())' "$root" "$@"
+# It is separate from `arda` so that the approval, which allows `arda`, never covers it;
+# it refuses to run under any other name (a PATH link called `arda`, say). Like bin/arda,
+# it takes its interpreter and helpers from the standard system PATH and runs Python
+# isolated, so the caller's environment cannot make it run other code.
+case $(command -p basename -- "$0") in
+  arda-trust) ;;
+  *) echo 'arda-trust: run it by its own name, arda-trust, yourself in a terminal' >&2; exit 2 ;;
+esac
+root=$(command -p dirname -- "$(command -p dirname -- "$(command -p readlink -f -- "$0")")")
+python=$(command -p -v python3) || { echo 'arda-trust: python3 not found in the standard system PATH' >&2; exit 2; }
+exec "$python" -I -c 'import sys; sys.path.insert(0, sys.argv.pop(1)); from arda.cli import trust_main; raise SystemExit(trust_main())' "$root" "$@"

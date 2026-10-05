@@ -1,6 +1,8 @@
 import re
 import unittest
 
+import isolation  # noqa: F401  (before any test runs: keeps tests away from real Herdr)
+
 from arda.envelope import AddressError, Message, clean, parse, parse_address, target
 
 

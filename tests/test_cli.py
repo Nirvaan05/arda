@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import isolation  # noqa: F401  (before any test runs: keeps tests away from real Herdr)
+
 from arda.cli import main
 from arda.envelope import MAX_BODY, parse
 
@@ -31,6 +33,11 @@ class CliCase(unittest.TestCase):
         binary.chmod(0o755)
         self.env = {'HERDR_BIN_PATH': str(binary), 'FAKE_HERDR_STATE': str(self.state_path),
                     'HERDR_PANE_ID': 'w1:p1'}
+        # Whatever the test runner itself runs in, act as outside Herdr: ARDA then takes herdr from
+        # HERDR_BIN_PATH (the fake) and never consults a real Herdr server.
+        outside = mock.patch('arda.cli._under_herdr', return_value=None)
+        outside.start()
+        self.addCleanup(outside.stop)
         self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2'))
 
     def set_agents(self, *agents, **extra):
@@ -53,6 +60,13 @@ class CliCase(unittest.TestCase):
             except SystemExit as exit_:  # argparse rejects the command line
                 code = exit_.code
         return code, out.getvalue(), err.getvalue()
+
+
+class IsolationTests(unittest.TestCase):
+    def test_no_test_can_reach_a_real_herdr_server(self):
+        self.assertFalse([key for key in os.environ if key.startswith('HERDR_')])
+        for key in ('XDG_CONFIG_HOME', 'XDG_STATE_HOME'):
+            self.assertIn('arda-tests-', os.environ[key])
 
 
 class CliTests(CliCase):
@@ -216,8 +230,8 @@ class CliTests(CliCase):
         self.assertIn('now waiting at an approval or question prompt', result['detail'])
 
     def test_file_must_be_in_the_working_directory_or_temp(self):
-        outside = Path.home() / 'arda-test-should-not-exist'
-        code, _, err = self.run_cli('send', '@codex', '--file', str(outside))
+        outside = '/etc/passwd'  # a real file outside the working directory and /tmp
+        code, _, err = self.run_cli('send', '@codex', '--file', outside)
         self.assertEqual((code, self.prompts()), (2, []))
         self.assertIn('--file must be in the working directory', err)
         inside = Path(self.tmp.name) / 'note.md'  # the system temporary directory
@@ -233,7 +247,7 @@ class CliTests(CliCase):
         (home / 'project' / 'notes.md').write_text('fine')
         old_cwd = os.getcwd()
         try:
-            with mock.patch.dict(os.environ, {'HOME': str(home)}):
+            with mock.patch('arda.cli.real_home', return_value=str(home)):
                 os.chdir(home)  # the home directory never counts as a working directory
                 self.assertEqual(self.run_cli('send', '@codex', '--file', '.bashrc')[0], 2)
                 os.chdir(home / 'project')
@@ -251,7 +265,8 @@ class CliTests(CliCase):
         (home / 'notes').mkdir()
         old_cwd = os.getcwd()
         try:
-            with mock.patch.dict(os.environ, {'HOME': str(home)}):
+            with mock.patch('arda.cli.real_home', return_value=str(home)), \
+                    mock.patch.dict(os.environ, {'HOME': '/nonexistent'}):  # $HOME is the caller's, not used
                 os.chdir(home / '.ssh')  # the caller picks its working directory
                 self.assertEqual(self.run_cli('send', '@codex', '--file', 'id_rsa')[0], 2)
                 os.chdir(home / 'notes')
@@ -262,6 +277,20 @@ class CliTests(CliCase):
         finally:
             os.chdir(old_cwd)
         self.assertEqual(self.prompts(), [])
+
+    def test_a_fifo_is_refused_without_blocking(self):
+        fifo = Path(self.tmp.name) / 'pipe'
+        os.mkfifo(fifo)
+        code, _, err = self.run_cli('send', '@codex', '--file', str(fifo))
+        self.assertEqual((code, self.prompts()), (2, []))
+        self.assertIn('must be a regular file', err)
+
+    def test_inside_herdr_the_servers_own_herdr_is_used_not_herdr_bin_path(self):
+        from arda import cli
+        with mock.patch('arda.cli._under_herdr', return_value=os.getpid()), \
+                mock.patch.dict(os.environ, {'HERDR_BIN_PATH': '/tmp/not-herdr'}):
+            self.assertEqual(cli.herdr_binary(), os.readlink(f'/proc/{os.getpid()}/exe'))
+        self.assertIsNone(cli.herdr_binary())  # outside Herdr: HERDR_BIN_PATH or herdr on PATH
 
     def test_an_odd_reply_after_typing_does_not_crash(self):
         self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2', null_reply=True))

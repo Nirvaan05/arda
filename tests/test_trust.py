@@ -150,6 +150,17 @@ class TrustTests(CliCase):
         self.assertEqual(self.run_trust('--revoke', '--yes')[0], 0)
         self.assertEqual(self.settings(), {'permissions': {'allow': ['Bash(ls)'], 'deny': ['Bash(rm *)']}})
 
+    def test_a_planted_staging_link_cannot_redirect_a_write(self):
+        victim = Path(self.tmp.name) / 'unrelated.txt'
+        victim.write_text('keep me\n')
+        (self.codex / 'AGENTS.md.arda-tmp').symlink_to(victim)  # the old, predictable staging name
+        self.assertEqual(self.run_trust('--yes')[0], 0)
+        self.assertEqual(victim.read_text(), 'keep me\n')
+        self.assertFalse((self.codex / 'AGENTS.md').is_symlink())
+        self.assertIn('arda-trust:begin', (self.codex / 'AGENTS.md').read_text())
+        self.assertEqual([p.name for p in self.codex.iterdir() if p.name.endswith('.arda-tmp') and not p.is_symlink()],
+                         [])  # no staging file left behind
+
     def test_codex_override_file_takes_the_section_when_codex_reads_it(self):
         (self.codex / 'AGENTS.override.md').write_text('# Override\n')
         self.run_trust('--yes')

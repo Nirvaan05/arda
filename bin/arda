@@ -1,6 +1,9 @@
 #!/bin/sh
 # Run ARDA from its plugin root, wherever this script is invoked or linked from.
-# The root is passed as an argument, not through PYTHONPATH, and -P keeps the
-# caller's current directory off sys.path, so no local module can shadow ARDA.
-root=$(dirname -- "$(dirname -- "$(readlink -f -- "$0")")")
-exec python3 -P -c 'import sys; sys.path.insert(0, sys.argv.pop(1)); from arda.cli import main; raise SystemExit(main())' "$root" "$@"
+# Agents may run this command outside their sandbox, so nothing the caller sets may make
+# it run other code: the interpreter and helpers come from the system's standard PATH
+# (command -p), and Python runs isolated (-I: no PYTHON* variables, no user site, no
+# script or current directory on sys.path). The root is passed as an argument.
+root=$(command -p dirname -- "$(command -p dirname -- "$(command -p readlink -f -- "$0")")")
+python=$(command -p -v python3) || { echo 'arda: python3 not found in the standard system PATH' >&2; exit 2; }
+exec "$python" -I -c 'import sys; sys.path.insert(0, sys.argv.pop(1)); from arda.cli import main; raise SystemExit(main())' "$root" "$@"

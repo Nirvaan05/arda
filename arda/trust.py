@@ -17,6 +17,7 @@ cannot use the approval to extend it. `arda-trust --revoke` removes exactly what
 added, including what older versions installed as `arda trust`.
 """
 
+import contextlib
 import json
 import os
 import shutil
@@ -338,11 +339,17 @@ def _write(path, text):
     real = Path(os.path.realpath(path))
     real.parent.mkdir(parents=True, exist_ok=True)
     mode = real.stat().st_mode & 0o777 if real.exists() else 0o600
-    tmp = real.with_name(real.name + '.arda-tmp')
-    with open(tmp, 'w', newline='') as handle:
-        handle.write(text)
-    os.chmod(tmp, mode)
-    tmp.replace(real)
+    # A new, unpredictable staging file: a fixed name could be a planted symlink to another file.
+    fd, tmp = tempfile.mkstemp(dir=real.parent, prefix=f'.{real.name}.', suffix='.arda-tmp')
+    try:
+        with os.fdopen(fd, 'w', newline='') as handle:
+            handle.write(text)
+        os.chmod(tmp, mode)
+        os.replace(tmp, real)
+    except BaseException:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(tmp)
+        raise
 
 
 def _check_codex_rules(content, script):

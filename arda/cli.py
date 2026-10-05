@@ -3,8 +3,10 @@
 import argparse
 import json
 import os
+import pwd
 import shlex
 import shutil
+import stat
 import sys
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -198,43 +200,65 @@ def deliver(place, route, message, force=False, skip_busy=False, expect=None):
     return outcome(message, 'delivered', f'{to} was seen working after the message was submitted.', place, pane)
 
 
-def allowed_file(path):
-    """A --file must be a visible regular file in the working directory or /tmp.
+def real_home():
+    """The user's home directory from the user database: $HOME is the caller's to set."""
+    return os.path.realpath(pwd.getpwuid(os.getuid()).pw_dir)
+
+
+def check_file_path(real, path):
+    """A --file must be a visible file in the working directory or /tmp.
 
     Agents may run arda without a per-command prompt once the user approved
     ARDA, so --file must not become an easy way to send keys, credentials or
-    dotfiles to a peer. The caller chooses its working directory and its
-    TMPDIR, so neither may make a hidden path acceptable: any hidden path
-    component below the home directory is refused wherever the caller stands,
-    $TMPDIR is ignored, and home, / and their ancestors never count as a
-    working directory. This is a narrow guard against accidents, not a
-    boundary against a determined agent that can read the file itself.
+    dotfiles to a peer. The caller chooses its working directory, $HOME and
+    $TMPDIR, so none of them may make a hidden path acceptable: any hidden path
+    component below the real home directory is refused wherever the caller
+    stands, $TMPDIR is ignored in favour of /tmp, and the home directory, / and
+    their ancestors never count as a working directory. This is a narrow guard
+    against accidents, not a boundary against a determined agent that can read
+    the file itself.
     """
-    home = os.path.realpath(os.path.expanduser('~'))
-    real = os.path.realpath(path)
+    home = real_home()
     if real.startswith(home + '/') and any(part.startswith('.') for part in os.path.relpath(real, home).split('/')):
         raise UsageError('--file cannot be a hidden file or inside a hidden directory')
 
     def usable(root):
         return root != '/' and not (home + '/').startswith(root.rstrip('/') + '/')
 
-    roots = [root for root in dict.fromkeys(os.path.realpath(p) for p in (os.getcwd(), '/tmp')) if usable(root)]
-    for root in roots:
-        if real.startswith(root.rstrip('/') + '/'):
+    for root in dict.fromkeys(os.path.realpath(p) for p in (os.getcwd(), '/tmp')):
+        if usable(root) and real.startswith(root.rstrip('/') + '/'):
             if any(part.startswith('.') for part in os.path.relpath(real, root).split('/')):
                 raise UsageError('--file cannot be a hidden file or inside a hidden directory')
-            if not os.path.isfile(real):
-                raise UsageError(f'--file must be a regular file: {path}')
-            return real
+            return
     raise UsageError(f'--file must be in the working directory (not your home directory) or in /tmp: {path}; '
                      'copy the content there, or pass it as text')
+
+
+def read_file(path):
+    """Read a --file, checking the file that was actually opened, so it cannot be swapped after the check."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY | os.O_CLOEXEC)  # a FIFO never blocks
+    except OSError as err:
+        raise UsageError(f'cannot open --file {path}: {err.strerror}') from None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise UsageError(f'--file must be a regular file: {path}')
+        check_file_path(os.readlink(f'/proc/self/fd/{fd}'), path)
+        data = b''
+        while chunk := os.read(fd, 65536):
+            data += chunk
+            if len(data) > 4 * MAX_BODY:
+                break  # read_body reports the size
+        return data.decode()
+    finally:
+        os.close(fd)
 
 
 def read_body(text, path):
     if path and text:
         raise UsageError('give the message text or --file, not both')
     if path:
-        text = Path(allowed_file(path)).read_text()
+        text = read_file(path)
     elif text == '-':
         text = sys.stdin.read()
     text = clean(text or '').strip()
@@ -665,9 +689,26 @@ def fail(herdr, args, code, detail, exit_code):
     return exit_code
 
 
+def herdr_binary():
+    """The herdr executable ARDA runs.
+
+    Inside Herdr it is the one the Herdr server that owns this pane runs, never
+    HERDR_BIN_PATH: agents may run arda outside their sandbox, and the caller sets
+    its environment. Outside Herdr, HERDR_BIN_PATH or herdr on PATH.
+    """
+    server = _under_herdr()
+    if type(server) is not int:
+        return None
+    try:
+        binary = os.readlink(f'/proc/{server}/exe')
+    except OSError:
+        return None
+    return binary.removesuffix(' (deleted)')  # updated since the server started: the new file at that path
+
+
 def main(argv=None):
     args = parse_args(argv)
-    herdr = Herdr(session=args.session)
+    herdr = Herdr(binary=herdr_binary(), session=args.session)
     try:
         data, text = HANDLERS[args.command](herdr, args)
     except (UsageError, EnvelopeError, trust.TrustError, OSError, UnicodeDecodeError) as err:
@@ -692,7 +733,7 @@ def trust_main(argv=None):
     parser.add_argument('--version', action='version', version=f'arda-trust {__version__}')
     args = parser.parse_args(argv)
     args.session, args.command = None, 'trust'
-    herdr = Herdr()
+    herdr = Herdr(binary=herdr_binary())
     try:
         data, text = grant_trust(herdr, args)
     except (UsageError, trust.TrustError, OSError) as err:
