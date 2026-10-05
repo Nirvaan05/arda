@@ -115,6 +115,27 @@ Delivery is not acceptance. Only `ack` means the receiver accepted a task, and o
 blocked agent, and keeps no queue or history. A sender does not wait for replies; they
 arrive as new prompts.
 
+## Self-description
+
+An agent can tell its peers what it does, which tools it uses and which model it runs.
+`arda describe` stores this as Herdr metadata tokens on the agent's own pane, and
+`arda peers` reads them from Herdr with everything else. ARDA keeps no copy.
+
+| Token | Value |
+| --- | --- |
+| `arda-role` | What the agent does and is good at. |
+| `arda-tools` | Tools it uses. |
+| `arda-model` | The model it runs on. |
+| `arda-by` | The agent that wrote the description: its harness and its native token or terminal fingerprint (`claude:s3e42…`). |
+
+Each value is one line of at most 80 characters, which is Herdr's limit for a metadata
+value. Herdr keeps pane metadata when the agent in the pane exits, so a description is shown
+only while `arda-by` still matches the agent in the pane. A description is the pane's
+own claim and is not verified: any process that can use the Herdr session can set these
+tokens. Herdr does not restore them after a server restart. `arda peers` shows them next
+to what Herdr observes (harness, state, working directory, place and when it looked) and
+marks them as self-described.
+
 ## Trust
 
 Messages are not authenticated. Any process that can use a Herdr session can send one

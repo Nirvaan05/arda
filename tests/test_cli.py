@@ -11,7 +11,7 @@ from unittest import mock
 import isolation  # noqa: F401  (before any test runs: keeps tests away from real Herdr)
 
 from arda.cli import main
-from arda.envelope import MAX_BODY, parse
+from arda.envelope import MAX_BODY, native_token, parse
 
 FAKE = Path(__file__).with_name('fake_herdr.py')
 
@@ -416,6 +416,80 @@ class CliTests(CliCase):
         self.assertEqual(self.run_cli('send', 'Bad Name', 'x')[0], 2)
         self.assertEqual(self.run_cli('task', '@codex', 'x', env={'HERDR_PANE_ID': None})[0], 2)
         self.assertEqual(self.prompts(), [])
+
+
+
+class DescribeTests(CliCase):
+    """Agents tell peers what they do; `arda peers` shows it next to what Herdr observed."""
+
+    def setUp(self):
+        super().setUp()
+        session = {'source': 'herdr:codex', 'agent': 'codex', 'kind': 'id', 'value': 'abc'}
+        self.set_agents(agent('claude', 'w1:p1', terminal_id='term_65cc151806d161', cwd='/work/app'),
+                        agent('reviewer', 'w1:p2', kind='codex', agent_session=session, cwd='/work/app'))
+
+    def state(self):
+        return json.loads(self.state_path.read_text())
+
+    def test_description_is_set_on_the_own_pane_and_shown_by_peers(self):
+        code, out, _ = self.run_cli('describe', '--role', 'implements features in arda/',
+                                    '--tools', 'pytest, ruff', '--model', 'Opus')
+        self.assertEqual(code, 0, out)
+        self.assertIn('role: implements features in arda/', out)
+        tokens = self.state()['agents'][0]['tokens']
+        self.assertEqual(tokens['arda-by'], 'claude:1806d161')
+        _, out, _ = self.run_cli('peers')
+        self.assertIn('/work/app', out)
+        self.assertIn('self-described: role "implements features in arda/"  tools "pytest, ruff"  model "Opus"',
+                      out)
+        peer = json.loads(self.run_cli('peers', '--json')[1])['peers'][0]
+        self.assertEqual(peer['described'], {'role': 'implements features in arda/', 'tools': 'pytest, ruff',
+                                             'model': 'Opus'})
+        self.assertEqual((peer['cwd'], peer['observed_at'] is not None), ('/work/app', True))
+
+    def test_a_field_can_be_changed_alone_and_everything_cleared(self):
+        self.run_cli('describe', '--role', 'reviews diffs', '--tools', 'git')
+        self.run_cli('describe', '--tools', 'git, gh')
+        self.assertEqual(json.loads(self.run_cli('describe', '--json')[1]),
+                         {'status': 'none', 'address': '@claude.1806d161', 'role': 'reviews diffs',
+                          'tools': 'git, gh'})
+        self.run_cli('describe', '--role', '')
+        self.assertNotIn('arda-role', self.state()['agents'][0]['tokens'])
+        self.run_cli('describe', '--clear')
+        self.assertEqual(self.state()['agents'][0]['tokens'], {})
+        self.assertIn('has not described itself', self.run_cli('describe')[1])
+
+    def test_too_long_a_value_is_refused_rather_than_cut(self):
+        code, _, err = self.run_cli('describe', '--role', 'x' * 81)
+        self.assertEqual(code, 2)
+        self.assertIn('at most 80', err)
+        self.assertNotIn('tokens', self.state()['agents'][0])
+
+    def test_a_description_left_by_an_earlier_agent_in_the_pane_is_not_shown(self):
+        self.run_cli('describe', '--role', 'reviews diffs')
+        state = self.state()
+        state['agents'][0]['terminal_id'] = 'term_65cc15180000ff'  # another agent now runs in the pane
+        self.state_path.write_text(json.dumps(state))
+        self.assertNotIn('self-described', self.run_cli('peers')[1])
+        self.run_cli('describe', '--tools', 'git')
+        self.assertEqual(json.loads(self.run_cli('describe', '--json')[1])['tools'], 'git')
+        self.assertNotIn('role', json.loads(self.run_cli('describe', '--json')[1]))  # the old role went
+
+    def test_a_description_is_cleaned_before_it_is_shown(self):
+        state = self.state()
+        reviewer = state['agents'][1]
+        reviewer['tokens'] = {'arda-by': 'codex:' + native_token(reviewer['agent_session']),
+                              'arda-role': 'reviews\u202e diffs\u200b'}
+        self.state_path.write_text(json.dumps(state))
+        self.assertEqual(json.loads(self.run_cli('peers', '--json')[1])['peers'][1]['described'],
+                         {'role': 'reviews diffs'})
+
+    def test_introductions_carry_the_roles_peers_gave(self):
+        self.run_cli('describe', '--role', 'implements features')
+        self.run_cli('introduce')
+        [prompt] = self.prompts()
+        self.assertEqual(prompt['target'], 'w1:p2')
+        self.assertIn(', says it does: "implements features")', parse(prompt['text']).body)
 
 
 if __name__ == '__main__':

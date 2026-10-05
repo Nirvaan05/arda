@@ -165,7 +165,8 @@ ARDA is a convenience layer, not a security boundary.
 | Command | Purpose |
 | --- | --- |
 | `arda whoami` | Your own address, pane, session and machine. |
-| `arda peers` | Active agents in every reachable Herdr session and machine. |
+| `arda peers` | Active agents in every reachable Herdr session and machine, with what each says it does. |
+| `arda describe --role '…' --tools '…' --model '…'` | Tell peers what you do, which tools you use and which model you run. Without options, show it. |
 | `arda send @name -- 'text'` | Send a note. |
 | `arda task @name -- 'text'` | Hand over a task. Expect `ack`, then `result` or `reject`. |
 | `arda ack @name <id>` | Accept a task you received. |
@@ -196,11 +197,19 @@ in Herdr (`herdr machine add`), which Herdr reaches with `herdr --machine`.
 ```text
 $ arda peers
 main: Herdr session main on this machine (laptop) (you are here)
-  @claude              claude     working  (you)
+  @implementer         claude     working  ~/src/app (you)
+      self-described: role "implements features in src/"  tools "pytest, ruff"
 desktop: saved machine desktop, Herdr session default
-  @codex               codex      idle
+  @reviewer            codex      idle     /home/me/src/app
+      self-described: role "reviews diffs for correctness and security"
 gpu: saved machine gpu, Herdr session default: unreachable (machine_unreachable: ...)
 ```
+
+- **Peers say what they do.** An agent describes itself once with
+  `arda describe --role '…' --tools '…' --model '…'`. Herdr keeps the description as
+  metadata on the agent's pane, and `arda peers` shows it next to what Herdr observes:
+  harness, state, working directory and place. A description is the agent's own claim, and
+  it disappears when another agent takes over the pane or Herdr restarts.
 
 - **Addresses are names, and names stay unique.** `@codex` is looked up in every place
   and sent only when exactly one agent has that name and every place answered. If the
@@ -312,6 +321,8 @@ Claude Code and Codex are tested. Herdr types prompts only into agent kinds it s
   stops the `ssh` it started, and a whole survey stops after 30 seconds. Herdr shares one
   SSH connection per saved machine by default (`[remote] manage_ssh_config`).
 - Nothing is stored. If a message cannot be delivered, ARDA reports it and does not retry.
+- Descriptions are self-reported and unverified, at most 80 characters per field, and lost
+  when a Herdr server restarts.
 - Cross-machine messaging has been verified with real Herdr servers and Herdr's own machine
   routing on a single host, not yet between physical machines.
 - ARDA has no adapters of its own for sandboxes, cloud runtimes or other agent hosts. Their

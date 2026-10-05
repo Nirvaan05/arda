@@ -115,6 +115,17 @@ def main(argv):
         # By default the caller (the test process running arda) is the pane's shell.
         reply({'type': 'pane_process_info',
                'process_info': {'pane_id': argv[3], 'shell_pid': state.get('shell_pid', os.getppid())}})
+    if argv[:2] == ['pane', 'report-metadata']:
+        target, rest = find(argv[2]), argv[3:]
+        tokens = target.setdefault('tokens', {})
+        for flag, value in zip(rest[::2], rest[1::2]):
+            if flag == '--token':
+                key, _, text = value.partition('=')
+                tokens[key] = text[:80]
+            elif flag == '--clear-token':
+                tokens.pop(value, None)
+        save(path, state)
+        sys.exit(0)  # like Herdr, prints nothing when it succeeds
     if argv[:2] == ['integration', 'install']:
         state.setdefault('integrations', []).append(argv[2])
         save(path, state)

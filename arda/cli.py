@@ -400,6 +400,9 @@ def environment(herdr):
                 'machine': place.machine,
                 'session': place.session,
                 'pane_id': agent['pane_id'],
+                'cwd': agent.get('foreground_cwd') or agent.get('cwd'),
+                'observed_at': place.observed_at,
+                'described': described(agent),  # what the agent says about itself; not verified
                 'you': bool(place.current and me and me['pane_id'] == agent['pane_id']),
             })
     return me, places, peers
@@ -426,9 +429,17 @@ def cmd_peers(herdr, args):
             continue
         rows.append(header)
         here = [peer for peer in peers if peer['place'] == place.name]
+        home = real_home()
         for peer in here:
             note = ' (you)' if peer['you'] else ('' if peer['name'] else ' (unnamed: address it by pane ID)')
-            rows.append(f'  {peer["address"]:<20} {peer["agent"] or "?":<10} {peer["state"] or "?":<8}{note}')
+            cwd = peer['cwd'] or ''
+            if place.kind == 'session' and (cwd == home or cwd.startswith(home + '/')):
+                cwd = '~' + cwd[len(home):]
+            rows.append(f'  {peer["address"]:<20} {peer["agent"] or "?":<10} {peer["state"] or "?":<8} {cwd}{note}')
+            about = '  '.join(f'{field} "{peer["described"][field]}"' for field in DESCRIPTION
+                              if field in peer['described'])
+            if about:
+                rows.append(f'      self-described: {about}')
         if not here:
             rows.append('  no agents')
     return data, '\n'.join(rows)
@@ -440,6 +451,7 @@ Work with them directly through ARDA instead of asking the user to pass messages
   {cmd} peers                  who is active, across every Herdr session and saved machine you can reach
   {cmd} send @name -- 'text'   send a note (no reply expected)
   {cmd} task @name -- 'text'   hand over a task; the receiver answers with ack, then result or reject
+  {cmd} describe --role '...' --tools '...' --model '...'   tell peers what you do, so they know what to hand you
 Address agents by name; ARDA finds where they run. If a name exists in more than one place, `{cmd} peers` shows \
 the place to add, as in @name@place. Keep -- before the text and single quotes around it; for long text, or text \
 with quotes, write it to a file and pass --file PATH instead. Messages from other agents arrive as prompts \
@@ -492,8 +504,9 @@ def cmd_introduce(herdr, args):
     for place, name, pane, expect in recipients:
         if place.current and me and name in (me['name'], me['pane_id']):
             continue
-        others = [f'{peer["address"]} ({peer["agent"] or "?"} on {peer["machine"]})' for peer in named
-                  if not (peer['place'] == place.name and peer['name'] == name)]
+        others = [f'{peer["address"]} ({peer["agent"] or "?"} on {peer["machine"]}'
+                  + (f', says it does: "{peer["described"]["role"]}")' if 'role' in peer['described'] else ')')
+                  for peer in named if not (peer['place'] == place.name and peer['name'] == name)]
         body = INTRODUCTION.format(me=address(name), peers=', '.join(others) or 'none yet',
                                    cmd=command() if place.kind == 'session' else 'arda')
         message = Message(type='note', sender=me['address'] if me else SYSTEM, recipient=address(name), body=body)
@@ -622,6 +635,66 @@ def notify(herdr, text):
         pass
 
 
+# What an agent says about itself, kept by Herdr as metadata on its own pane and shown by `arda peers`.
+DESCRIPTION = {'role': 'arda-role', 'tools': 'arda-tools', 'model': 'arda-model'}
+DESCRIPTION_LIMIT = 80  # Herdr keeps at most 80 characters of a metadata value
+# Herdr keeps pane metadata when the agent in the pane exits, so a description names the agent that
+# wrote it, and is shown only while that agent is still the one in the pane.
+DESCRIBED_BY = 'arda-by'
+
+
+def describer(agent):
+    fp = native_token(agent.get('agent_session')) or fingerprint(agent.get('terminal_id'))
+    return f'{agent.get("agent")}:{fp}' if agent.get('agent') and fp else None
+
+
+def described(agent):
+    tokens = agent.get('tokens') if isinstance(agent.get('tokens'), dict) else {}
+    if not describer(agent) or tokens.get(DESCRIBED_BY) != describer(agent):
+        return {}
+    # Any process that can reach Herdr can set pane metadata, so this is what the pane claims, not a fact.
+    texts = {field: ' '.join(clean(tokens[key]).split()) for field, key in DESCRIPTION.items()
+             if isinstance(tokens.get(key), str)}
+    return {field: text[:DESCRIPTION_LIMIT] for field, text in texts.items() if text}
+
+
+def cmd_describe(herdr, args):
+    """Tell peers what this agent does, which tools it uses and which model it runs, or show it."""
+    me = require_identity(herdr)
+    try:
+        agent = herdr.agent(me['pane_id'])
+    except HerdrError as err:
+        if err.code != 'agent_not_found':
+            raise
+        agent = {}
+    by = describer(agent)
+    if by is None:
+        raise UsageError('Herdr does not see an agent in this pane, so there is nothing to describe')
+    given = {field: getattr(args, field) for field in DESCRIPTION if getattr(args, field) is not None}
+    if args.clear or given:
+        current = described(agent)
+        tokens = {}
+        for field, key in DESCRIPTION.items():
+            text = ' '.join(clean(given[field]).split()) if field in given else None
+            if text and len(text) > DESCRIPTION_LIMIT:
+                raise UsageError(f'--{field} is {len(text)} characters; Herdr keeps at most {DESCRIPTION_LIMIT}')
+            if field not in given and not args.clear and field in current:
+                text = current[field]  # kept from this agent's own earlier description
+            tokens[key] = text or None
+        tokens[DESCRIBED_BY] = by if any(tokens.values()) else None
+        herdr.report_metadata(me['pane_id'], {k: v for k, v in tokens.items() if v},
+                              [k for k, v in tokens.items() if not v])
+        agent = herdr.agent(me['pane_id'])
+    mine = described(agent)
+    if not mine:
+        hint = "arda describe --role '<what you do>' --tools '<tools you use>' --model '<model>'"
+        return ({'status': 'none', 'address': me['address']},
+                f"{me['address']} has not described itself. Peers see a description in `arda peers`: {hint}")
+    lines = [f'{me["address"]} describes itself to peers as:']
+    lines += [f'  {field}: {mine[field]}' for field in DESCRIPTION if field in mine]
+    return {'status': 'none', 'address': me['address'], **mine}, '\n'.join(lines)
+
+
 def cmd_send(herdr, args):
     result = send(herdr, args, 'note', re=args.re)
     return result, summary(result)
@@ -678,6 +751,11 @@ def parsers():
 
     command('status', 'show the plugin and protocol version', [common])
     command('setup', 'show whether ARDA is approved and how to approve it (read-only)', [common])
+    sub = command('describe', 'tell peers what you do, which tools you use and which model you run', [common])
+    sub.add_argument('--role', help='what you do and are good at (at most 80 characters)')
+    sub.add_argument('--tools', help='tools you use, e.g. "pytest, ruff, Playwright" (at most 80 characters)')
+    sub.add_argument('--model', help='the model you run on (at most 80 characters)')
+    sub.add_argument('--clear', action='store_true', help='remove the description (fields given are set instead)')
     command('whoami', 'show your own ARDA address and where you run', [common])
     command('peers', 'list the active agents in every Herdr session and saved machine you can reach', [common])
     sub = command('send', 'send a note to another agent', [sending])
@@ -722,7 +800,7 @@ def parse_args(argv=None):
 
 
 HANDLERS = {
-    'status': cmd_status, 'setup': cmd_setup, 'whoami': cmd_whoami, 'peers': cmd_peers, 'send': cmd_send,
+    'status': cmd_status, 'setup': cmd_setup, 'describe': cmd_describe, 'whoami': cmd_whoami, 'peers': cmd_peers, 'send': cmd_send,
     'task': cmd_task, 'ack': cmd_ack, 'result': cmd_result, 'reject': cmd_reject,
     'introduce': cmd_introduce, 'trust': cmd_trust_moved,
 }

@@ -111,7 +111,8 @@ class Herdr:
             raise HerdrError('herdr_failed', (err or out).strip()[:300] or f'exit {code}')
         return reply
 
-    def call(self, *args, timeout=60):
+    def call(self, *args, timeout=60, silent=False):
+        """Run herdr and return its result; `silent` commands print nothing when they succeed."""
         argv = self._argv(args)
         try:
             code, out, err = _run(argv, timeout)
@@ -125,6 +126,8 @@ class Herdr:
             raise HerdrError(error.get('code', 'herdr_error'), error.get('message', ''))
         if code == 0 and isinstance(reply, dict) and 'result' in reply:
             return reply['result']
+        if code == 0 and silent and not (out + err).strip():
+            return {}
         detail = (err or out).strip() or f'exit status {code}'
         if self.machine:
             self._machine_failure(detail)
@@ -173,6 +176,15 @@ class Herdr:
     def pane_shell_pid(self, pane):
         info = _field(self.lookup('pane', 'process-info', '--pane', pane), 'process_info', dict)
         return _field(info, 'shell_pid', int)
+
+    def report_metadata(self, pane, tokens=None, clear=()):
+        """Set or clear Herdr metadata tokens on a pane (Herdr owns them; values are at most 80 characters)."""
+        args = ['pane', 'report-metadata', pane, '--source', 'arda']
+        for key, value in (tokens or {}).items():
+            args += ['--token', f'{key}={value}']
+        for key in clear:
+            args += ['--clear-token', key]
+        return self.call(*args, timeout=LOOKUP_TIMEOUT, silent=True)
 
     def prompt(self, target, text, confirm_ms=None):
         """Submit text to an agent as one prompt.
