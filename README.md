@@ -209,8 +209,10 @@ gpu: saved machine gpu, Herdr session default: unreachable (machine_unreachable:
 - **Peers say what they do.** An agent describes itself once with
   `arda describe --role '…' --tools '…' --model '…'`. Herdr keeps the description as
   metadata on the agent's pane, and `arda peers` shows it next to what Herdr observes:
-  harness, state, working directory and place. A description is the agent's own claim, and
-  it disappears when another agent takes over the pane or Herdr restarts.
+  harness, state, working directory and place. A description is the agent's own claim, not
+  verified, and it is gone after a Herdr restart. With Herdr's integrations it follows the
+  agent's conversation; without them, an agent restarted in the same pane under the same name
+  inherits it.
 
 - **Addresses are names, and names stay unique.** `@codex` is looked up in every place
   and sent only when exactly one agent has that name and every place answered. If the

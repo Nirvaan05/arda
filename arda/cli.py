@@ -2,6 +2,7 @@
 
 import argparse
 import dataclasses
+import hashlib
 import json
 import os
 import pwd
@@ -9,6 +10,7 @@ import shlex
 import shutil
 import stat
 import sys
+import unicodedata
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -435,11 +437,13 @@ def cmd_peers(herdr, args):
             cwd = peer['cwd'] or ''
             if place.kind == 'session' and (cwd == home or cwd.startswith(home + '/')):
                 cwd = '~' + cwd[len(home):]
-            rows.append(f'  {peer["address"]:<20} {peer["agent"] or "?":<10} {peer["state"] or "?":<8} {cwd}{note}')
-            about = '  '.join(f'{field} "{peer["described"][field]}"' for field in DESCRIPTION
-                              if field in peer['described'])
+            rows.append(f'  {shown(peer["address"]):<20} {shown(peer["agent"] or "?"):<10} {shown(peer["state"] or "?"):<8} '
+                        f'{shown(cwd)}{note}')
+            # Each value is a JSON string, so a quote inside it cannot end it and start another field.
+            about = '  '.join(f'{field} {json.dumps(peer["described"][field], ensure_ascii=False)}'
+                              for field in DESCRIPTION if field in peer['described'])
             if about:
-                rows.append(f'      self-described: {about}')
+                rows.append(f'      self-described, not verified: {about}')
         if not here:
             rows.append('  no agents')
     return data, '\n'.join(rows)
@@ -448,7 +452,8 @@ def cmd_peers(herdr, args):
 INTRODUCTION = """\
 ARDA is active in this Herdr environment. You are {me}. Other agents you can reach: {peers}.
 Work with them directly through ARDA instead of asking the user to pass messages along:
-  {cmd} peers                  who is active, across every Herdr session and saved machine you can reach
+  {cmd} peers                  who is active and what each says it does, across every Herdr session and saved \
+machine you can reach
   {cmd} send @name -- 'text'   send a note (no reply expected)
   {cmd} task @name -- 'text'   hand over a task; the receiver answers with ack, then result or reject
   {cmd} describe --role '...' --tools '...' --model '...'   tell peers what you do, so they know what to hand you
@@ -504,9 +509,8 @@ def cmd_introduce(herdr, args):
     for place, name, pane, expect in recipients:
         if place.current and me and name in (me['name'], me['pane_id']):
             continue
-        others = [f'{peer["address"]} ({peer["agent"] or "?"} on {peer["machine"]}'
-                  + (f', says it does: "{peer["described"]["role"]}")' if 'role' in peer['described'] else ')')
-                  for peer in named if not (peer['place'] == place.name and peer['name'] == name)]
+        others = [f'{peer["address"]} ({peer["agent"] or "?"} on {peer["machine"]})' for peer in named
+                  if not (peer['place'] == place.name and peer['name'] == name)]
         body = INTRODUCTION.format(me=address(name), peers=', '.join(others) or 'none yet',
                                    cmd=command() if place.kind == 'session' else 'arda')
         message = Message(type='note', sender=me['address'] if me else SYSTEM, recipient=address(name), body=body)
@@ -639,13 +643,25 @@ def notify(herdr, text):
 DESCRIPTION = {'role': 'arda-role', 'tools': 'arda-tools', 'model': 'arda-model'}
 DESCRIPTION_LIMIT = 80  # Herdr keeps at most 80 characters of a metadata value
 # Herdr keeps pane metadata when the agent in the pane exits, so a description names the agent that
-# wrote it, and is shown only while that agent is still the one in the pane.
+# wrote it and is shown only while that agent is the one in the pane.
 DESCRIBED_BY = 'arda-by'
 
 
 def describer(agent):
-    fp = native_token(agent.get('agent_session')) or fingerprint(agent.get('terminal_id'))
-    return f'{agent.get("agent")}:{fp}' if agent.get('agent') and fp else None
+    """The agent a description belongs to.
+
+    With a native conversation token, that conversation, whatever its name. Without one,
+    the harness, terminal and name: an agent of the same harness restarted in the same
+    terminal under the same name cannot be told apart from the one that wrote it.
+    """
+    kind, native = agent.get('agent'), native_token(agent.get('agent_session'))
+    if not kind:
+        return None
+    if native:
+        return f'{kind}:{native}'
+    fp = fingerprint(agent.get('terminal_id'))
+    name = hashlib.sha256((agent.get('name') or '').encode()).hexdigest()[:8]
+    return f'{kind}:{fp}:{name}' if fp else None
 
 
 def described(agent):
@@ -656,6 +672,21 @@ def described(agent):
     texts = {field: ' '.join(clean(tokens[key]).split()) for field, key in DESCRIPTION.items()
              if isinstance(tokens.get(key), str)}
     return {field: text[:DESCRIPTION_LIMIT] for field, text in texts.items() if text}
+
+
+def shown(text):
+    """Text that Herdr reports (a working directory, say) made safe to print: control and invisible
+    characters, and backslashes, become visible escapes. JSON output keeps the exact text."""
+    out = []
+    for char in text:
+        if char == '\\':
+            out.append('\\\\')
+        elif unicodedata.category(char) in ('Cc', 'Cf', 'Cs', 'Zl', 'Zp'):
+            code = ord(char)
+            out.append(f'\\x{code:02x}' if code < 0x100 else f'\\u{code:04x}' if code < 0x10000 else f'\\U{code:08x}')
+        else:
+            out.append(char)
+    return ''.join(out)
 
 
 def cmd_describe(herdr, args):
@@ -670,20 +701,29 @@ def cmd_describe(herdr, args):
     by = describer(agent)
     if by is None:
         raise UsageError('Herdr does not see an agent in this pane, so there is nothing to describe')
-    given = {field: getattr(args, field) for field in DESCRIPTION if getattr(args, field) is not None}
+    given = {}
+    for field in DESCRIPTION:
+        value = getattr(args, field)
+        if value is not None:
+            given[field] = ' '.join(clean(value).split())
+            if len(given[field]) > DESCRIPTION_LIMIT:
+                raise UsageError(f'--{field} is {len(given[field])} characters; Herdr keeps at most '
+                                 f'{DESCRIPTION_LIMIT}')
     if args.clear or given:
-        current = described(agent)
-        tokens = {}
-        for field, key in DESCRIPTION.items():
-            text = ' '.join(clean(given[field]).split()) if field in given else None
-            if text and len(text) > DESCRIPTION_LIMIT:
-                raise UsageError(f'--{field} is {len(text)} characters; Herdr keeps at most {DESCRIPTION_LIMIT}')
-            if field not in given and not args.clear and field in current:
-                text = current[field]  # kept from this agent's own earlier description
-            tokens[key] = text or None
-        tokens[DESCRIBED_BY] = by if any(tokens.values()) else None
-        herdr.report_metadata(me['pane_id'], {k: v for k, v in tokens.items() if v},
-                              [k for k, v in tokens.items() if not v])
+        # Only the fields asked for change, so two updates at once do not undo each other. Fields
+        # written by an earlier agent in this pane go when this one first describes itself.
+        tokens = agent.get('tokens') if isinstance(agent.get('tokens'), dict) else {}
+        earlier = tokens.get(DESCRIBED_BY) != by
+        setting = {DESCRIPTION[field]: text for field, text in given.items() if text}
+        clearing = [DESCRIPTION[field] for field, text in given.items() if not text]
+        clearing += [key for field, key in DESCRIPTION.items()
+                     if field not in given and (args.clear or (earlier and key in tokens))]
+        if setting:
+            setting[DESCRIBED_BY] = by
+        elif args.clear:
+            clearing.append(DESCRIBED_BY)
+        if setting or clearing:
+            herdr.report_metadata(me['pane_id'], setting, clearing)
         agent = herdr.agent(me['pane_id'])
     mine = described(agent)
     if not mine:
@@ -691,7 +731,7 @@ def cmd_describe(herdr, args):
         return ({'status': 'none', 'address': me['address']},
                 f"{me['address']} has not described itself. Peers see a description in `arda peers`: {hint}")
     lines = [f'{me["address"]} describes itself to peers as:']
-    lines += [f'  {field}: {mine[field]}' for field in DESCRIPTION if field in mine]
+    lines += [f'  {field}: {json.dumps(mine[field], ensure_ascii=False)}' for field in DESCRIPTION if field in mine]
     return {'status': 'none', 'address': me['address'], **mine}, '\n'.join(lines)
 
 

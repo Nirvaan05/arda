@@ -12,7 +12,7 @@ State:
   "prompts": every accepted `agent prompt` as {place, target, text, options}
   "notifications", "calls": recorded as well
 Optional "error" fails every call with that code; optional "raw" is printed verbatim instead of a
-reply; optional "shell_pid" is the pane shell reported by `pane process-info` (default: the
+reply (exiting with "raw_exit", default 0); optional "shell_pid" is the pane shell reported by `pane process-info` (default: the
 process that ran this fake).
 """
 
@@ -80,8 +80,8 @@ def main(argv):
     if state.get('error'):
         reply(error=state['error'])
     if 'raw' in state:
-        print(state['raw'])
-        sys.exit(0)
+        print(state['raw'], end='')
+        sys.exit(state.get('raw_exit', 0))
     if argv[:3] == ['session', 'list', '--json']:
         sessions = state.get('sessions') or [{'name': 'main', 'running': True, 'default': True,
                                               'socket_path': os.environ.get('HERDR_SOCKET_PATH', '/fake.sock')}]

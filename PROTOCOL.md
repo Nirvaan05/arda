@@ -187,15 +187,22 @@ An agent can tell its peers what it does, which tools it uses and which model it
 | `arda-role` | What the agent does and is good at. |
 | `arda-tools` | Tools it uses. |
 | `arda-model` | The model it runs on. |
-| `arda-by` | The agent that wrote the description: its harness and its native token or terminal fingerprint (`claude:s3e42…`). |
+| `arda-by` | The agent that wrote the description: its harness and native token (`claude:s3e42…`), or without one, its harness, terminal fingerprint and a hash of its name. |
 
 Each value is one line of at most 80 characters, which is Herdr's limit for a metadata
 value. Herdr keeps pane metadata when the agent in the pane exits, so a description is shown
-only while `arda-by` still matches the agent in the pane. A description is the pane's
-own claim and is not verified: any process that can use the Herdr session can set these
-tokens. Herdr does not restore them after a server restart. `arda peers` shows them next
-to what Herdr observes (harness, state, working directory, place and when it looked) and
-marks them as self-described.
+only while `arda-by` still matches the agent in the pane. With a native token it follows
+the conversation through renames and is hidden after the conversation changes. Without
+one, a new agent of the same harness started in the same terminal under the same name
+cannot be told apart and inherits the description. An update changes only the fields it
+names; fields left by an earlier agent are removed when a new agent first describes itself.
+
+A description is the pane's own claim and is not verified: any process that can use the
+Herdr session can set these tokens, `arda-by` included. Herdr does not restore them after a
+server restart. `arda peers` shows them on their own line, marked as self-described and not
+verified, each value encoded as a JSON string, next to what Herdr observes (harness, state,
+working directory, place and when it looked); control and invisible characters in observed
+text are shown as escapes. Introductions do not include descriptions.
 
 ## Trust
 
