@@ -70,7 +70,7 @@ class CliTests(CliCase):
         result = json.loads(out)
         self.assertEqual((code, result['status'], result['type']), (0, 'delivered', 'task_request'))
         [prompt] = self.prompts()
-        self.assertEqual(prompt['target'], 'codex')
+        self.assertEqual(prompt['target'], 'w1:p2')  # the pane verified right before typing
         self.assertIn('--wait', prompt['options'])
         self.assertEqual(prompt['options'].count('--until'), 2)
         message = parse(prompt['text'])
@@ -292,7 +292,7 @@ class CliTests(CliCase):
         self.assertEqual(code, 1)  # the busy reviewer was not introduced
         [prompt] = self.prompts()
         message = parse(prompt['text'])
-        self.assertEqual((prompt['target'], message.sender, message.type), ('codex', '@claude', 'note'))
+        self.assertEqual((prompt['target'], message.sender, message.type), ('w1:p2', '@claude', 'note'))
         self.assertIn('You are @codex.', message.body)
         self.assertIn('@claude (claude on ', message.body)
         self.assertIn('@reviewer (codex on ', message.body)
@@ -303,7 +303,7 @@ class CliTests(CliCase):
         code, _, _ = self.run_cli('introduce', env={'HERDR_PLUGIN_ID': 'arda'})
         self.assertEqual(code, 0)
         texts = [p['text'] for p in self.prompts()]
-        self.assertCountEqual([p['target'] for p in self.prompts()], ['claude', 'codex'])  # delivered in parallel
+        self.assertCountEqual([p['target'] for p in self.prompts()], ['w1:p1', 'w1:p2'])  # delivered in parallel
         self.assertTrue(all(parse(text).sender == '@arda' for text in texts))
         self.assertIn('[arda] From ARDA itself. No reply needed.', texts[0])
         notifications = json.loads(self.state_path.read_text())['notifications']
@@ -316,11 +316,11 @@ class CliTests(CliCase):
         result = json.loads(out)
         self.assertEqual((code, result['status']), (3, 'uncertain'))
         self.assertEqual([r['status'] for r in result['results']], ['uncertain', 'not_delivered', 'delivered'])
-        self.assertEqual(self.prompts()[-1]['target'], 'tester')
+        self.assertEqual(self.prompts()[-1]['target'], 'w1:p4')
 
     def test_introduce_explicit_targets_and_nobody_to_introduce(self):
         self.run_cli('introduce', '@codex')
-        self.assertEqual([p['target'] for p in self.prompts()], ['codex'])
+        self.assertEqual([p['target'] for p in self.prompts()], ['w1:p2'])
         self.set_agents(agent('claude', 'w1:p1'))
         code, out, _ = self.run_cli('introduce', '--json')
         self.assertEqual((code, json.loads(out)['status']), (0, 'none'))
@@ -329,7 +329,7 @@ class CliTests(CliCase):
         self.set_agents(agent('claude', 'w1:p1'), agent('arda', 'w1:p3', kind='codex'), agent('codex', 'w1:p2'))
         code, out, _ = self.run_cli('introduce')
         self.assertEqual(code, 0)
-        self.assertEqual([p['target'] for p in self.prompts()], ['codex'])
+        self.assertEqual([p['target'] for p in self.prompts()], ['w1:p2'])
         self.assertIn("skipped w1:p3@main (codex): its name 'arda' cannot be an ARDA address", out)
         self.assertNotIn('@arda', parse(self.prompts()[0]['text']).body)
         self.run_cli('introduce', '@claude', 'w1:p1')

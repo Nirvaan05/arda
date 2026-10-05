@@ -15,7 +15,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from .envelope import Address, fingerprint
+from .envelope import Address, fingerprint, native_token
 from .herdr import Herdr, HerdrError
 
 # One invocation's whole survey: places not asked or not answered by then are reported so
@@ -189,16 +189,41 @@ def resolution(places, policy, needed, matches=(), permitted=True, needs_catalog
 
 
 class Unresolved(Exception):
-    pass
+    def __init__(self, detail, matches=()):
+        super().__init__(detail)
+        self.matches = list(matches)
+
+
+def policy(address):
+    if address.name is None:
+        return 'pane'
+    kind = 'native' if address.native else 'hint' if address.fingerprint else 'name'
+    return {('native', True): 'native_qualified', ('native', False): 'native', ('hint', False): 'hint',
+            ('hint', True): 'hint', ('name', True): 'qualified', ('name', False): 'bare'}[kind, bool(address.place)]
+
+
+def matches_identity(address, agent):
+    """Whether a listed agent is the one an address names (native token, or name + terminal hint, or name)."""
+    if address.native:
+        return native_token(agent.get('agent_session')) == address.fingerprint  # the name may have changed
+    if agent.get('name') != address.name:
+        return False
+    return not address.fingerprint or fingerprint(agent.get('terminal_id')) == address.fingerprint
+
+
+def _agents_now(places):
+    listed = [f'@{a["name"]}@{p.name} ({a.get("agent") or "?"})' for p in places for a in p.agents if a.get('name')]
+    return ', '.join(listed) or 'none'
 
 
 def resolve(address, places):
-    """Find the place of an address, and its agent when a listing already showed it.
+    """Find the one agent an address names: (place, listed agent), or (place, None) for a pane route.
 
-    Returns (place, agent); agent is None for a pane ID or a bare place. Never guesses
-    between agents with the same name. A fingerprinted address (a reply) names exactly
-    one agent, so this machine's sessions are asked first and saved machines, which
-    cost SSH round trips, only when the agent is not on this machine.
+    Strict: an answer that claims one agent needs every place it depends on to have answered
+    (and, for addresses that are not tied to a place, the session and machine catalogs),
+    and exactly one match. A native token names a conversation, which can be resumed in
+    more than one place, so it is held to the same rule. Nothing falls through to another
+    route; refusals say why and list the choices.
     """
     current = places[0]
     if address.place:
@@ -208,34 +233,42 @@ def resolve(address, places):
             raise Unresolved(f'no place called {address.place!r} in this Herdr environment (places: {known})')
         if address.name is None:
             return place, None
-        survey([place])
-        if not place.reachable:
-            raise Unresolved(f'{place.name} is unreachable, so nothing was sent ({place.error})')
         candidates = [place]
     elif address.name is None:
         return current, None  # a bare pane ID is a route in the caller's own Herdr server
     else:
-        candidates = places
-    tiers = [candidates]
-    if address.fingerprint:
-        tiers = [[p for p in candidates if p.kind == 'session'], [p for p in candidates if p.kind != 'session']]
-    for tier in tiers:
-        survey([p for p in tier if not p.asked])
-        matches = [(p, a) for p in candidates for a in p.agents if a.get('name') == address.name]
-        if address.fingerprint:
-            matches = [(p, a) for p, a in matches if fingerprint(a.get('terminal_id')) == address.fingerprint]
-        if matches:
-            break
-    unreachable = [p.name for p in candidates if not p.reachable]
+        candidates = list(places)
+    survey([p for p in candidates if not p.asked])
+    matches = [(p, a) for p in candidates for a in p.agents if matches_identity(address, a)]
+    missing = [p for p in candidates if not p.answered]
+    if address.place and missing:
+        raise Unresolved(f'{address.place} did not answer, so nothing was sent ({missing[0].error or missing[0].skipped})')
+    if missing or (not address.place and not places.domain_known):
+        why = [f'{p.name} did not answer ({p.error or p.skipped})' for p in missing]
+        why += [f'the {e["operation"]} failed ({e["code"]})' for e in places.discovery_errors if not address.place]
+        choices = ', '.join(str(Address(a.get("name") or address.name, p.name, address.fingerprint))
+                            for p, a in matches)
+        detail = f'{address} cannot be shown to be unique, so nothing was sent: {"; ".join(why)}.'
+        if choices and not address.place:
+            detail += f' Found so far: {choices}; address one of them with its place to send anyway.'
+        detail += (' (Taking an offline saved machine out of the environment, with `herdr machine disable`, is '
+                   "a setup choice for the user, not for an agent.)")
+        raise Unresolved(detail, matches)
     if not matches:
-        detail = f'no live agent {address} in this Herdr environment'
+        if address.native:
+            raise Unresolved(f'no live agent runs the conversation {address}: it ended, or was not resumed here')
         if address.fingerprint:
-            detail = (f'no live agent {address}: the agent that sent the message is gone, or now runs in a '
-                      'different terminal')
-        if unreachable:
-            detail += f' (unreachable: {", ".join(unreachable)})'
-        raise Unresolved(detail)
+            renamed = [(p, a) for p in candidates for a in p.agents
+                       if fingerprint(a.get('terminal_id')) == address.fingerprint and a.get('name')]
+            if renamed:
+                hints = ', '.join(f'@{a["name"]}.{address.fingerprint}@{p.name}' for p, a in renamed)
+                raise Unresolved(f'no live agent {address}; the agent in that terminal is now {hints}. If it is the '
+                                 'same agent (not a new one in the same terminal), send to that address instead.')
+            raise Unresolved(f'no live agent {address}: the agent that sent the message is gone, or now runs in a '
+                             'different terminal')
+        raise Unresolved(f'no live agent {address} in this Herdr environment. Agents now: {_agents_now(candidates)}')
     if len(matches) > 1:
-        options = ', '.join(str(Address(address.name, p.name, address.fingerprint)) for p, _ in matches)
-        raise Unresolved(f'@{address.name} is ambiguous in this Herdr environment; use one of: {options}')
+        options = ', '.join(str(Address(a.get('name') or address.name, p.name, address.fingerprint))
+                            for p, a in matches)
+        raise Unresolved(f'{address} matches more than one agent; use one of: {options}', matches)
     return matches[0]

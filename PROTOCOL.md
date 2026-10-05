@@ -12,8 +12,9 @@ An address names a participant, not a terminal.
 | Form | Meaning |
 | --- | --- |
 | `@codex` | The live Herdr agent named `codex`, wherever it runs in the sender's Herdr environment. |
-| `@codex@desktop` | The agent `codex` in the place `desktop`: a Herdr session on this machine or a saved Herdr machine. Needed only when the name runs in more than one place. |
-| `@claude.1806d161` | The agent `claude` whose Herdr terminal ID ends in `1806d161`. Senders identify themselves this way, so a reply cannot reach another terminal with the same name. It cannot tell apart two agents started one after another in the same terminal under the same name. |
+| `@codex@desktop` | The agent `codex` in the place `desktop`: a Herdr session on this machine or a saved Herdr machine. Needed when the name runs in more than one place, or to reach it while another place does not answer. |
+| `@claude.s<32 hex>` | The agent running one native conversation, whatever its name is now. The token is a versioned 128-bit hash of the session reference Herdr's official Claude Code and Codex integrations report. Senders identify themselves this way when Herdr has such a reference, so replies follow them across renames and resumed restarts. `@claude.s<32 hex>@desktop` limits it to one place. |
+| `@claude.1806d161` | Best effort when there is no native conversation: the agent named `claude` whose Herdr terminal ID ends in `1806d161`. It keeps a reply away from another terminal with the same name, but cannot tell apart two agents started one after another in the same terminal under the same name. |
 | `w1:p2`, `w1:p2@desktop` | A Herdr pane ID, for agents without a name. A route in one Herdr server, not an identity; an agent without a name can only message agents in its own place. |
 | `@arda` | Reserved for messages from ARDA itself, such as introductions. It cannot be addressed, and an agent named `arda` cannot send. Like every sender, it is not authenticated. |
 
@@ -27,14 +28,18 @@ session on its machine, and every enabled machine saved in Herdr, which Herdr re
 with `herdr --machine`. ARDA resolves an address against that environment each time a
 message is sent:
 
-- A name found in exactly one reachable place is sent there. A name found in several
-  places is refused with the qualified choices; ARDA never picks one.
-- A fingerprint must match the agent found, or nothing is sent. A fingerprinted address
-  names exactly one agent, so it is looked up in this machine's sessions first and in
-  saved machines only when it is not found there.
-- A place that does not answer is reported as unreachable, with Herdr's reason. Nothing
-  is sent to it. A name found once while another place did not answer is sent, and the
-  result lists the places that were not checked.
+- An address that is not tied to a place (`@codex`, `@claude.s…`, `@claude.1806d161`) is
+  sent only when it can be shown to name exactly one agent: the session and machine
+  catalogs were read, every place answered, and exactly one agent matched. Otherwise
+  nothing is sent and the refusal says which place did not answer and which agents were
+  found, so the sender can name the place (`@codex@desktop`). A native conversation can be
+  resumed in more than one place, so a native token is held to the same rule.
+- An address with a place needs only that place to answer.
+- A native token matches whatever the agent is called now; a renamed agent keeps it. An
+  old name is refused with the agents there are now. A terminal hint whose terminal now
+  carries another name is refused with that name as a suggestion, since ARDA cannot tell a
+  rename from a new agent in the same terminal.
+- A place that does not answer is reported with Herdr's reason. Nothing is sent to it.
 - ARDA cannot prove that two places reach the same Herdr server (a saved machine that
   points back at this one, for example), so it never merges them: a name seen through both
   needs its place.
@@ -91,7 +96,9 @@ A message is the text of one Herdr agent prompt:
 
 ## Delivery
 
-ARDA hands a message to Herdr (`herdr agent prompt`) and reports only what Herdr can show:
+ARDA reads the receiver again right before typing, checks that it is still the agent the
+address named (its name, native conversation or terminal), and types into that verified
+pane with `herdr agent prompt`. It reports only what Herdr can show:
 
 | Status | Meaning |
 | --- | --- |

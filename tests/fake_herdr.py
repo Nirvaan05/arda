@@ -103,10 +103,10 @@ def main(argv):
         reply(error='agent_not_found')
 
     if argv[:2] == ['agent', 'list']:
-        # "listed_status" lets a listing show an older state than `agent get` does (a receiver that
-        # changed state between the survey and the delivery).
-        reply({'type': 'agent_list', 'agents': [{**a, 'agent_status': a.get('listed_status', a['agent_status'])}
-                                                 for a in agents]})
+        # "listed_status" and "listed" (any fields) let a listing show an older view than `agent get`
+        # does: a receiver that changed between the survey and the delivery.
+        reply({'type': 'agent_list', 'agents': [{**a, 'agent_status': a.get('listed_status', a['agent_status']),
+                                                  **a.get('listed', {})} for a in agents]})
     if argv[:2] == ['agent', 'get']:
         reply({'type': 'agent_info', 'agent': find(argv[2])})
     if argv[:3] == ['pane', 'process-info', '--pane'] and argv[3] in state.get('stale_panes', []):

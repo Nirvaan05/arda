@@ -147,14 +147,19 @@ desktop: saved machine desktop, Herdr session default
 gpu: saved machine gpu, Herdr session default: unreachable (machine_unreachable: ...)
 ```
 
-- **Addresses are names.** `@codex` is looked up in every reachable place. If the same
-  name runs in two places, ARDA refuses to guess and lists the choices, such as
-  `@codex@desktop` and `@codex@main`.
-- **Replies find their way back.** A reply goes to the sender's name plus a fingerprint of
-  its Herdr terminal (`@claude.1806d161`), and the route is looked up again when the reply
-  is sent. The fingerprint keeps a reply away from another terminal that has the same
-  name. It cannot tell apart two agents started one after another in the same terminal
-  under the same name, because Herdr does not show which conversation runs in a terminal.
+- **Addresses are names, and names stay unique.** `@codex` is looked up in every place
+  and sent only when exactly one agent has that name and every place answered. If the
+  name runs in two places, or a place does not answer, ARDA sends nothing and lists the
+  choices, such as `@codex@desktop`; an address with its place needs only that place.
+- **Renames carry through.** Names are read from Herdr on every send, so after
+  `herdr agent rename` the new name works at once and the old one is refused with the
+  agents there are now.
+- **Replies find their way back.** With Herdr's official integrations installed
+  (`herdr integration install claude` / `codex`), a sender is identified by its native
+  conversation (`@claude.s…`), so replies follow it across renames and resumed restarts.
+  Without them, the reply address is the sender's name plus the end of its terminal ID
+  (`@claude.1806d161`), a best-effort hint that cannot tell apart two agents started one
+  after another in the same terminal under the same name.
 - **Pane IDs are routes, not identities.** An agent without a Herdr name can only message
   agents in its own place, since a pane ID such as `w1:p2` would point at the wrong pane
   anywhere else.
@@ -165,8 +170,8 @@ gpu: saved machine gpu, Herdr session default: unreachable (machine_unreachable:
   agent that is waiting at an approval prompt, and never retries on its own.
 - **Unreachable places say why:** the machine cannot be reached, its Herdr session is not
   running, it refused the SSH login (`herdr machine reconnect`), or its Herdr version does
-  not match. A name found once while another place did not answer is still sent, and the
-  result names the places that were not checked. ARDA cannot prove that two routes reach
+  not match. While a saved machine is offline, address agents with their place, or take the
+  machine out of the environment yourself (`herdr machine disable`). ARDA cannot prove that two routes reach
   the same Herdr server, such as a saved machine that points back at this one, so it lists
   both and a name seen through both needs its place (`@name@place`).
 
@@ -234,12 +239,12 @@ Claude Code and Codex are tested. Herdr types prompts only into agent kinds it s
 - ARDA relies on Herdr's view of an agent's state. Herdr 0.9.3 does not always recognise a
   harness's own dialogs as "blocked" (Claude Code's end-of-turn tips, for example), and a
   message typed then lands in that dialog.
-- A message addressed by name asks every reachable place for its agents, in parallel,
-  because the name must be unique among them: one Herdr round trip per saved machine, plus
-  the prompt itself. A reply asks saved machines only when the sender is not on this
-  machine. A lookup gives up after 5 seconds on this machine and 15 on a saved machine, and
-  stops the `ssh` it started. Herdr shares one SSH connection per saved machine by default
-  (`[remote] manage_ssh_config`).
+- A message or reply that is not tied to a place asks every place for its agents (at most
+  eight at a time, one at a time per saved machine), because it must be unique among them;
+  then it reads the receiver again and types. An address with its place asks only that
+  place. A lookup gives up after 5 seconds on this machine and 15 on a saved machine and
+  stops the `ssh` it started, and a whole survey stops after 30 seconds. Herdr shares one
+  SSH connection per saved machine by default (`[remote] manage_ssh_config`).
 - Nothing is stored. If a message cannot be delivered, ARDA reports it and does not retry.
 - Cross-machine messaging has been verified with real Herdr servers and Herdr's own machine
   routing on a single host, not yet between physical machines.

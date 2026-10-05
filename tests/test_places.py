@@ -26,12 +26,13 @@ class PlacesTests(CliCase):
             'sessions': sessions('main', 'other'),
             'session_agents': {'other': [agent('tester', 'w1:p1', kind='claude')]},
             'machines': {'d1': {'label': 'Desktop', 'agents': [agent('codex', 'w1:p1')]},
-                         'g1': {'label': 'gpu', 'down': True}},
+                         'g1': {'label': 'gpu', 'agents': []}},
         }
         self.set_agents(agent('claude', 'w1:p1', terminal_id='term_0000aaaa1111'), agent('helper', 'w1:p2'),
                         **{**state, **overrides})
 
     def test_peers_covers_every_reachable_place_and_names_unreachable_ones(self):
+        self.environment(machines={'d1': {'label': 'Desktop', 'agents': [agent('codex', 'w1:p1')]}, 'g1': {'label': 'gpu', 'down': True}})
         code, out, _ = self.run_cli('peers', '--json')
         data = json.loads(out)
         self.assertEqual(code, 0)
@@ -50,7 +51,7 @@ class PlacesTests(CliCase):
         self.assertEqual((code, result['status'], result['to'], result['place']), (0, 'delivered', '@codex@desktop',
                                                                                   'desktop'))
         [prompt] = self.prompts()
-        self.assertEqual((prompt['place'], prompt['target']), ('d1', 'codex'))
+        self.assertEqual((prompt['place'], prompt['target']), ('d1', 'w1:p1'))  # the verified pane
         message = parse(prompt['text'])
         self.assertEqual((message.sender, message.recipient), ('@claude.aaaa1111', '@codex'))
         self.assertIn('arda ack @claude.aaaa1111 ', prompt['text'])  # another machine: its own arda
@@ -84,10 +85,11 @@ class PlacesTests(CliCase):
     def calls(self):
         return json.loads(self.state_path.read_text())['calls']
 
-    def test_a_reply_to_this_machine_asks_no_saved_machine(self):
+    def test_a_reply_asks_every_place_and_needs_the_name_and_terminal(self):
         self.env['HERDR_PANE_ID'] = 'w1:p2'
         self.assertEqual(self.run_cli('result', '@claude.aaaa1111', 'abc123', '--', 'done')[0], 0)
-        self.assertEqual([c for c in self.calls() if c[0] == '--machine'], [])
+        self.assertEqual(sorted(c[1] for c in self.calls() if c[0] == '--machine' and c[2:4] == ['agent', 'list']),
+                         ['d1', 'g1'])  # strict: a terminal hint is checked across the whole environment
 
     def test_the_receiver_is_read_again_right_before_typing(self):
         # Listed idle, working by the time of delivery: the fresh read decides (Codex's race, D3).
@@ -152,13 +154,17 @@ class PlacesTests(CliCase):
         self.assertEqual((code, json.loads(out)['status']), (1, 'not_delivered'))
         self.assertEqual(self.run_cli('send', '@helper@main', '--', 'hi')[0], 0)
 
-    def test_a_name_matched_while_a_machine_did_not_answer_says_so(self):
+    def test_a_bare_name_is_refused_while_a_place_does_not_answer(self):
+        self.environment(machines={'d1': {'label': 'Desktop', 'agents': [agent('codex', 'w1:p1')]}, 'g1': {'label': 'gpu', 'down': True}})
         code, out, _ = self.run_cli('send', '@codex', '--json', '--', 'hi')
         result = json.loads(out)
-        self.assertEqual((code, result['status']), (0, 'delivered'))
+        self.assertEqual((code, result['status'], self.prompts()), (1, 'not_delivered', []))
         self.assertEqual([u['place'] for u in result['resolution']['unanswered']], ['gpu'])
-        self.assertFalse(result['resolution']['complete'])
-        self.assertIn('Not checked: gpu did not answer', result['detail'])
+        self.assertEqual((result['resolution']['permitted'], result['resolution']['complete']), (False, False))
+        self.assertIn('cannot be shown to be unique', result['detail'])
+        self.assertIn('Found so far: @codex@desktop', result['detail'])
+        self.assertIn('a setup choice for the user, not for an agent', result['detail'])
+        self.assertEqual(self.run_cli('send', '@codex@desktop', '--', 'hi')[0], 0)  # its place: unrelated outage ok
 
     def test_failed_discovery_is_reported_not_treated_as_empty(self):
         self.environment(machine_list_error='cannot read the machine catalog')
@@ -183,7 +189,7 @@ class PlacesTests(CliCase):
         marker = Path(self.tmp.name) / 'child.pid'
         self.environment(machines={'h1': {'label': 'slow', 'hang': 30, 'hang_child': str(marker)}})
         with mock.patch('arda.herdr.MACHINE_TIMEOUT', 1):
-            self.assertEqual(self.run_cli('send', '@helper', '--', 'hi')[0], 0)
+            self.assertEqual(self.run_cli('send', '@helper', '--', 'hi')[0], 1)  # strict: slow could not answer
         pid = int(marker.read_text())
         for _ in range(30):
             try:
@@ -200,15 +206,16 @@ class PlacesTests(CliCase):
                                                                           agent('reviewer', 'w1:p2')]}})
         code, _, _ = self.run_cli('introduce', '--json', env={'HERDR_PLUGIN_ID': 'arda'})
         self.assertEqual(code, 0)
-        self.assertEqual(sorted(p['target'] for p in self.prompts() if p['place'] == 'd1'), ['codex', 'reviewer'])
+        self.assertEqual(sorted(p['target'] for p in self.prompts() if p['place'] == 'd1'), ['w1:p1', 'w1:p2'])
 
     def test_unreachable_places_fail_clearly_and_send_nothing(self):
+        self.environment(machines={'d1': {'label': 'Desktop', 'agents': [agent('codex', 'w1:p1')]}, 'g1': {'label': 'gpu', 'down': True}})
         code, out, _ = self.run_cli('send', '@codex@gpu', '--json', '--', 'hi')
         self.assertEqual((code, json.loads(out)['status']), (1, 'not_delivered'))
-        self.assertIn('gpu is unreachable, so nothing was sent', json.loads(out)['detail'])
+        self.assertIn('gpu did not answer, so nothing was sent', json.loads(out)['detail'])
         self.assertIn('saved machine gpu cannot be reached', json.loads(out)['detail'])
         code, out, _ = self.run_cli('send', '@reviewer', '--json', '--', 'hi')
-        self.assertIn('(unreachable: gpu)', json.loads(out)['detail'])
+        self.assertIn('gpu did not answer', json.loads(out)['detail'])
         code, out, _ = self.run_cli('send', '@codex@nowhere', '--json', '--', 'hi')
         self.assertIn("no place called 'nowhere'", json.loads(out)['detail'])
         self.assertEqual(self.prompts(), [])
@@ -217,12 +224,12 @@ class PlacesTests(CliCase):
         code, out, _ = self.run_cli('introduce', '--json', env={'HERDR_PLUGIN_ID': 'arda'})
         self.assertEqual(code, 0)
         self.assertCountEqual([(p['place'], p['target']) for p in self.prompts()],
-                              [('current', 'claude'), ('current', 'helper'), ('other', 'tester'), ('d1', 'codex')])
+                              [('current', 'w1:p1'), ('current', 'w1:p2'), ('other', 'w1:p1'), ('d1', 'w1:p1')])
         self.assertEqual([r['to'] for r in json.loads(out)['results']],  # reported in a fixed order
                          ['@claude', '@helper', '@tester@other', '@codex@desktop'])
         self.assertEqual([c[2:4] for c in self.calls() if c[:1] == ['--machine']],
                          [['agent', 'list'], ['agent', 'list'], ['agent', 'get'], ['agent', 'prompt']])
-        body = parse(next(p['text'] for p in self.prompts() if p['target'] == 'codex')).body
+        body = parse(next(p['text'] for p in self.prompts() if p['place'] == 'd1')).body
         self.assertIn('You are @codex.', body)
         self.assertIn('@tester (claude on ', body)
 
@@ -255,8 +262,9 @@ class PlacesTests(CliCase):
         started = time.time()
         with mock.patch('arda.herdr.MACHINE_TIMEOUT', 1):
             code, out, _ = self.run_cli('send', '@helper', '--json', '--', 'hi')
+            self.assertEqual((code, json.loads(out)['status']), (1, 'not_delivered'))  # strict
+            self.assertEqual(self.run_cli('send', '@helper@main', '--', 'hi')[0], 0)  # its place needs no survey
         self.assertLess(time.time() - started, 10)
-        self.assertEqual((code, json.loads(out)['status']), (0, 'delivered'))
 
     def test_an_unnamed_agent_cannot_message_another_place(self):
         self.environment()
@@ -274,7 +282,7 @@ class PlacesTests(CliCase):
         self.run_cli('result', '@claude.aaaa1111', 'abc123', '--', 'done')
         self.assertEqual(self.prompts()[-1]['target'], 'w1:p1')
         self.run_cli('send', '@claude', '--', 'by name')
-        self.assertEqual(self.prompts()[-1]['target'], 'claude')
+        self.assertEqual(self.prompts()[-1]['target'], 'w1:p1')  # always the pane that was verified
 
     def test_introduce_reports_unresolved_and_repeated_targets(self):
         code, out, _ = self.run_cli('introduce', '@nobody', '@codex', '@codex', '--json')

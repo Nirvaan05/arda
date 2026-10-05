@@ -6,6 +6,8 @@ ARDA. Everything a reply needs (who to answer, which message it answers) is in
 the text the receiver already has, so ARDA keeps no state between messages.
 """
 
+import hashlib
+import json
 import re
 import secrets
 import unicodedata
@@ -22,7 +24,9 @@ MAX_BODY = 32000  # bytes of UTF-8; Linux limits one command-line argument to 12
 _NAME = re.compile(r'[a-z][a-z0-9_-]{0,31}')
 _PANE = re.compile(r'w([0-9]+):p([0-9]+)')
 _PLACE = re.compile(r'[a-z0-9][a-z0-9._-]{0,62}')
-_FINGERPRINT = re.compile(r'[0-9a-f]{8}')
+_FINGERPRINT = re.compile(r'[0-9a-f]{8}|s[0-9a-f]{32}')  # terminal hint, or a native conversation token
+# Herdr's official integrations report these native session references; only they become tokens.
+NATIVE_SOURCES = {('herdr:claude', 'claude'), ('herdr:codex', 'codex')}
 # The fingerprint separator is "." rather than "#": an unquoted "#" stops Codex from matching the
 # command against its execpolicy rules, so replies would fall back to its sandbox.
 _ADDRESS = re.compile(r'(?P<route>@[^@.\s]+|w[0-9]+:p[0-9]+)(?:\.(?P<fp>[^@\s]+))?(?:@(?P<place>\S+))?')
@@ -75,14 +79,20 @@ class Address:
 
     `@codex` names an agent; ARDA finds where it lives across the Herdr
     environment. `@codex@desktop` names the place (a Herdr session or saved
-    machine) when the name alone is ambiguous. `@codex.5806d161` adds a
-    fingerprint of the agent's Herdr terminal, so a reply reaches the agent
-    that sent the message and never another one that merely has its name.
-    A pane ID such as `w1:p2` is a route in one Herdr server, not an identity.
+    machine) when the name alone is ambiguous. A suffix binds the address to one
+    agent: `@codex.s<32 hex>` is a token of the agent's native conversation (from
+    Herdr's official integrations), which follows it across renames;
+    `@codex.5806d161` is a best-effort hint, the end of its Herdr terminal ID,
+    used only together with the name. A pane ID such as `w1:p2` is a route in
+    one Herdr server, not an identity.
     """
     route: str
     place: str | None = None
     fingerprint: str | None = None
+
+    @property
+    def native(self):
+        return bool(self.fingerprint) and self.fingerprint.startswith('s')
 
     @property
     def name(self):
@@ -124,6 +134,26 @@ def parse_address(text):
 def target(address):
     """The Herdr target (agent name or pane ID) of an address."""
     return parse_address(address).route
+
+
+def native_token(session):
+    """The native conversation token of a Herdr agent_session, or None when it does not qualify.
+
+    Only `id` references reported by Herdr's official Claude Code and Codex integrations
+    qualify (path references name files on one machine). The token is 128 bits of a
+    versioned hash of the full reference; it identifies a conversation, which may run
+    in more than one place, so resolution still refuses duplicates.
+    """
+    if not isinstance(session, dict):
+        return None
+    fields = [session.get(key) for key in ('source', 'agent', 'kind', 'value')]
+    if not all(isinstance(value, str) and value for value in fields):
+        return None
+    source, agent, kind, _ = fields
+    if kind != 'id' or (source, agent) not in NATIVE_SOURCES:
+        return None
+    canonical = json.dumps(fields, separators=(',', ':'), ensure_ascii=False).encode()
+    return 's' + hashlib.sha256(b'arda-native-v1\n' + canonical).hexdigest()[:32]
 
 
 def fingerprint(terminal_id):

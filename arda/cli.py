@@ -20,10 +20,11 @@ from .envelope import (
     address,
     clean,
     fingerprint,
+    native_token,
     parse_address,
 )
 from .herdr import Herdr, HerdrError
-from .topology import Unresolved, discover, resolution, resolve, survey
+from .topology import Unresolved, discover, policy, resolution, resolve, survey
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIRM_MS = 15000
@@ -108,7 +109,9 @@ def identity(herdr):
     name = agent.get('name')
     if name and f'@{name}' == SYSTEM:
         raise UsageError(f'the agent name {name!r} is reserved for ARDA itself; rename this agent to use ARDA')
-    fp = fingerprint(agent.get('terminal_id'))
+    # A native conversation token follows the agent across renames and restarts that resume its
+    # conversation; without one, the end of its terminal ID is a best-effort hint.
+    fp = native_token(agent.get('agent_session')) or fingerprint(agent.get('terminal_id'))
     return {
         'address': address(name, fp=fp) if name else agent['pane_id'],
         'name': name,
@@ -135,11 +138,13 @@ def outcome(message, status, detail, place=None, pane=None):
             'to': to, 'place': place.name if place else None, 'pane_id': pane, 'detail': detail}
 
 
-def deliver(place, route, message, force=False, skip_busy=False, fp=None):
+def deliver(place, route, message, force=False, skip_busy=False, expect=None):
     """Hand a message to the Herdr server of `place` and report what is actually known about delivery.
 
     The receiver is read again right before typing, never taken from an earlier listing: its
-    state decides whether to type at all and how the outcome is reported.
+    state decides whether to type at all and how the outcome is reported, and `expect` (the
+    identity resolution found: name, native session or terminal) must still hold. The text
+    is then typed into the pane that was just verified.
     """
     herdr = place.herdr
     to = message.recipient if place.current else f'{message.recipient}@{place.name}'
@@ -151,9 +156,11 @@ def deliver(place, route, message, force=False, skip_busy=False, fp=None):
         return outcome(message, 'not_delivered', f'nothing was sent: {place.name} did not answer '
                                                  f'({err.code}: {err.message})', place)
     state, pane = agent.get('agent_status'), agent.get('pane_id')
-    if fp and fingerprint(agent.get('terminal_id')) != fp:
-        return outcome(message, 'not_delivered', f'the agent now called {to} is not the one this message is '
-                                                 'meant for (it runs in a different terminal); nothing was sent',
+    changed = [key for key, value in (expect or {}).items() if (agent.get(key) if key != 'fingerprint'
+                                                                else fingerprint(agent.get('terminal_id'))) != value]
+    if changed:
+        return outcome(message, 'not_delivered', f'{to} changed after it was found ({", ".join(changed)} differs): '
+                                                 'it is not the agent this message is meant for; nothing was sent',
                        place, pane)
     if state == 'blocked':
         return outcome(message, 'not_delivered', f'{to} is waiting at an approval or question prompt; '
@@ -169,8 +176,7 @@ def deliver(place, route, message, force=False, skip_busy=False, fp=None):
     text = message.render(command() if place.kind == 'session' else 'arda')
     busy = state == 'working'
     try:
-        # With a fingerprint, type into the pane that was just verified, not whatever now holds the name.
-        reply = herdr.prompt(pane if fp and pane else route, text, confirm_ms=None if busy else CONFIRM_MS)
+        reply = herdr.prompt(pane or route, text, confirm_ms=None if busy else CONFIRM_MS)
     except HerdrError as err:
         # These are raised before Herdr writes anything (and without --wait,
         # agent_not_found can only come from that phase). Any other error may
@@ -248,30 +254,38 @@ def send(herdr, args, kind, re=None):
         raise UsageError(f'{me["pane_id"]} has no agent to receive the ack and result, so it cannot send tasks; '
                          'send a note instead, or run arda from an agent')
     body = read_body(getattr(args, 'text', None), getattr(args, 'file', None))
-    message = Message(type=kind, sender=me['address'], recipient=address(to.route), body=body, re=re)
     places = discover(herdr)
-    policy = 'pane' if to.name is None else 'qualified' if to.place else 'hint' if to.fingerprint else 'bare'
-    needed = [p for p in places if p.name == to.place] if to.place else places[:1] if to.name is None else places
+    rule = policy(to)
+    unbound = to.name is not None and not to.place  # resolved across the whole environment
+    needed = places if unbound else [p for p in places if p.name == to.place] if to.place else places[:1]
     try:
         place, agent = resolve(to, places)
     except Unresolved as err:
+        message = Message(type=kind, sender=me['address'], recipient=address(to.route), body=body, re=re)
         result = outcome(message, 'not_delivered', str(err))
-        result['resolution'] = resolution(places, policy, needed, permitted=False, needs_catalogs=policy != 'pane')
+        result['resolution'] = resolution(places, rule, needed, err.matches, permitted=False, needs_catalogs=unbound)
         return result
-    if place.current and to.route in (me['name'], me['pane_id']):
+    name = agent.get('name') if agent else None
+    if place.current and (agent and agent.get('pane_id') == me['pane_id'] or to.route in (me['name'], me['pane_id'])):
         raise UsageError('cannot send an ARDA message to yourself')
     if not place.current and not me['name']:
         raise UsageError('you have no Herdr agent name, and a pane ID means nothing in another place, so '
                          f'{place.name} could not reply; name this agent first (herdr agent rename '
                          f'{me["pane_id"]} <name>)')
-    result = deliver(place, to.route, message, force=getattr(args, 'force', False), fp=to.fingerprint)
-    result['resolution'] = resolution(places, policy, needed, [(place, agent)] if agent else [],
-                                      needs_catalogs=policy != 'pane')
-    # A bare name was matched once among the places that answered; say which did not.
-    unanswered = [u['place'] for u in result['resolution']['unanswered']]
-    if policy == 'bare' and unanswered and result['status'] != 'not_delivered':
-        result['detail'] += (f' Not checked: {", ".join(unanswered)} did not answer, so an agent with the same '
-                             'name there was not ruled out.')
+    # Address the message to the agent's current name: a native address follows it across renames.
+    message = Message(type=kind, sender=me['address'], recipient=address(name or to.route), body=body, re=re)
+    route, expect = to.route, None
+    if agent:
+        route = agent['pane_id']
+        expect = {'agent_session': agent.get('agent_session')} if to.native else {'name': name}
+        if to.fingerprint and not to.native:
+            expect['fingerprint'] = to.fingerprint
+    result = deliver(place, route, message, force=getattr(args, 'force', False), expect=expect)
+    if to.native and name and name != to.route:
+        result['requested'] = str(to)
+        result['detail'] += f' ({to} is now named @{name}.)'
+    result['resolution'] = resolution(places, rule, needed, [(place, agent)] if agent else [],
+                                      needs_catalogs=unbound)
     return result
 
 
@@ -398,18 +412,22 @@ def cmd_introduce(herdr, args):
         for text in dict.fromkeys(args.to):
             to = parse_address(text)
             try:
-                place, _ = resolve(to, places)
+                place, agent = resolve(to, places)
             except Unresolved as err:
                 unresolved.append({'status': 'not_delivered', 'type': 'note', 'to': str(to), 'detail': str(err)})
                 lines.append(f'not_delivered: {to}: {err}')
                 continue
-            if (place.name, to.route) not in [(p.name, r) for p, r in recipients]:
-                recipients.append((place, to.route))
+            if agent is None or not agent.get('name'):
+                unresolved.append({'status': 'not_delivered', 'type': 'note', 'to': str(to),
+                                   'detail': 'introductions go to named agents'})
+                continue
+            if (place.name, agent['pane_id']) not in [(p.name, pane) for p, _, pane in recipients]:
+                recipients.append((place, agent['name'], agent['pane_id']))
     else:
         by_name = {place.name: place for place in places}
-        recipients = [(by_name[peer['place']], peer['name']) for peer in named if not peer['you']]
+        recipients = [(by_name[peer['place']], peer['name'], peer['pane_id']) for peer in named if not peer['you']]
     notes = []
-    for place, name in recipients:
+    for place, name, pane in recipients:
         if place.current and me and name in (me['name'], me['pane_id']):
             continue
         others = [f'{peer["address"]} ({peer["agent"] or "?"} on {peer["machine"]})' for peer in named
@@ -417,12 +435,12 @@ def cmd_introduce(herdr, args):
         body = INTRODUCTION.format(me=address(name), peers=', '.join(others) or 'none yet',
                                    cmd=command() if place.kind == 'session' else 'arda')
         message = Message(type='note', sender=me['address'] if me else SYSTEM, recipient=address(name), body=body)
-        notes.append((place, name, message))
+        notes.append((place, name, pane, message))
 
     def introduce(note):
-        place, name, message = note
+        place, name, pane, message = note
         try:
-            return deliver(place, name, message, force=args.force, skip_busy=True)
+            return deliver(place, pane, message, force=args.force, skip_busy=True, expect={'name': name})
         except HerdrError as err:  # raised before anything was typed for this recipient
             return outcome(message, 'not_delivered', f'herdr: {err.message}', place)
     # Each delivery waits to see its receiver start, so deliver at once; but one at a time
