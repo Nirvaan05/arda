@@ -2,7 +2,7 @@ id = "arda"
 name = "ARDA"
 version = "0.1.0"
 min_herdr_version = "0.9.3"
-description = "One plugin to rule them all: coding agents in Herdr find each other by name and hand off tasks across sessions and machines."
+description = "One plugin to rule them all: agents in Herdr discover each other and hand off work across sessions and machines."
 platforms = ["linux"]
 
 [[actions]]

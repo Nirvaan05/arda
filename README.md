@@ -1,7 +1,6 @@
 # ARDA
 
-**Let Claude Code, Codex and other coding agents in Herdr find each other and hand off
-tasks, across sessions and machines.**
+**Agents shouldn’t live in separate worlds.**
 
 *One plugin to rule them all.*
 
@@ -11,13 +10,13 @@ tasks, across sessions and machines.**
 [![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen)](#development)
 ![Platform: Linux](https://img.shields.io/badge/platform-linux-lightgrey)
 
-ARDA is a [Herdr](https://herdr.dev) plugin that gives the coding agents running in your
-Herdr panes addresses and a small message protocol. Claude hands a task to Codex with
-`arda task @codex -- '…'`. Codex receives it as a prompt, acknowledges it, does the work
-and sends the result back, and the result lands in Claude's session as a new prompt. It
-works across every Herdr session on the machine and every machine saved in Herdr. ARDA is
-pure Python standard library: no daemon, no database, no queue and no MCP server. You stop
-being the message bus between your agents.
+ARDA is a [Herdr](https://herdr.dev) plugin that lets the coding agents in your Herdr
+environment discover each other and hand off work, across sessions and machines. Herdr is
+where your agents live; ARDA is how they reach each other. An agent finds another by name,
+hands it a task with `arda task @name -- '…'`, and the acknowledgement and the result come
+back to it as new prompts. The machines underneath are shared resources, not separate
+worlds, and you stop being the relay between your agents. ARDA is pure Python standard
+library: no daemon, no database, no queue and no MCP server.
 
 **Works with:** Claude Code and Codex (tested). Other agents that Herdr can prompt are not
 tested yet.
