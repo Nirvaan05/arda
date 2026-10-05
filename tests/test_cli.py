@@ -38,6 +38,9 @@ class CliCase(unittest.TestCase):
         outside = mock.patch('arda.cli._under_herdr', return_value=None)
         outside.start()
         self.addCleanup(outside.stop)
+        fake = mock.patch('arda.cli.herdr_binary', return_value=str(binary))  # the fake is "where herdr is"
+        fake.start()
+        self.addCleanup(fake.stop)
         self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2'))
 
     def set_agents(self, *agents, **extra):
@@ -292,12 +295,23 @@ class CliTests(CliCase):
         self.assertEqual((code, self.prompts()), (2, []))
         self.assertIn('must be a regular file', err)
 
-    def test_inside_herdr_the_servers_own_herdr_is_used_not_herdr_bin_path(self):
+    def test_the_herdr_arda_runs_is_never_chosen_by_the_caller(self):
         from arda import cli
-        with mock.patch('arda.cli._under_herdr', return_value=os.getpid()), \
-                mock.patch.dict(os.environ, {'HERDR_BIN_PATH': '/tmp/not-herdr'}):
-            self.assertEqual(cli.herdr_binary(), os.readlink(f'/proc/{os.getpid()}/exe'))
-        self.assertIsNone(cli.herdr_binary())  # outside Herdr: HERDR_BIN_PATH or herdr on PATH
+        mock.patch.stopall()  # the real herdr_binary, not the fake set up for the other tests
+        home = Path(self.tmp.name) / 'home'
+        (home / '.local' / 'bin').mkdir(parents=True)
+        caller = {'HERDR_BIN_PATH': '/tmp/not-herdr', 'PATH': f'{self.tmp.name}:/usr/bin:/bin'}
+        with mock.patch.dict(os.environ, caller), mock.patch('arda.cli.real_home', return_value=str(home)), \
+                mock.patch('arda.cli.HERDR_PLACES', ('.local/bin/herdr',)):
+            with mock.patch('arda.cli._under_herdr', return_value=os.getpid()):  # inside Herdr: the server's
+                self.assertEqual(cli.herdr_binary(), os.readlink(f'/proc/{os.getpid()}/exe'))
+            with mock.patch('arda.cli._under_herdr', return_value=None):         # outside: installed place only
+                with self.assertRaises(cli.UsageError):
+                    cli.herdr_binary()
+                installed = home / '.local' / 'bin' / 'herdr'
+                installed.write_text('#!/bin/sh\n')
+                installed.chmod(0o755)
+                self.assertEqual(cli.herdr_binary(), str(installed))
 
     def test_an_odd_reply_after_typing_does_not_crash(self):
         self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2', null_reply=True))

@@ -128,12 +128,12 @@ def claude_permissions(script):
             'deny': [rule for name in trusts for rule in (f'Bash({name})', f'Bash({name} *)')]}
 
 
-# Every Claude Code rule shape any ARDA version wrote, by list, for any install root (paths may
-# contain spaces): allow `arda *`; deny `arda trust`, `arda trust *` (before arda-trust existed),
+# Every Claude Code rule shape any ARDA version wrote, by list, for any install root or PATH link
+# (paths may contain spaces): allow `arda *`; deny `arda trust`, `arda trust *` (before arda-trust existed),
 # `arda-trust`, `arda-trust *`. Grant removes the ones it does not want now (an older version, a
 # moved install); revoke removes all. Other rules, even similar ones, are the user's.
-_ARDA = r'(?:arda|/.+/bin/arda)'
-_TRUST = r'(?:arda-trust|/.+/bin/arda-trust)'
+_ARDA = r'(?:arda|/.+/arda)'           # the bare command, or any full path to it (bin/, a PATH link)
+_TRUST = r'(?:arda-trust|/.+/arda-trust)'
 _OURS = {'allow': re.compile(rf'Bash\({_ARDA} \*\)'),
          'deny': re.compile(rf'Bash\((?:{_ARDA} trust(?: \*)?|{_TRUST}(?: \*)?)\)')}
 

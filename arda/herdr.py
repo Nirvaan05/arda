@@ -84,7 +84,7 @@ class Herdr:
     """One Herdr server: the caller's own, a named local session, or a saved machine."""
 
     def __init__(self, binary=None, session=None, machine=None, label=None):
-        self.binary = binary or os.environ.get('HERDR_BIN_PATH') or 'herdr'
+        self.binary = binary or 'herdr'  # callers pass a trusted path (arda.cli.herdr_binary), never the environment's
         self.session = session
         self.machine = machine
         self.label = label or machine

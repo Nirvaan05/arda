@@ -183,6 +183,16 @@ class TrustTests(CliCase):
         self.assertEqual(self.settings(), {'permissions': {'allow': ['Bash(ls)', 'Bash(ardavark *)'],
                                                            'deny': ['Bash(rm *)']}})
 
+    def test_a_path_link_outside_a_bin_directory_is_revoked_too(self):
+        commands = Path(self.tmp.name) / 'commands'
+        commands.mkdir()
+        (commands / 'arda').symlink_to(SCRIPT)
+        path = {'PATH': f'{commands}:/usr/bin:/bin'}
+        self.assertEqual(self.run_trust('--yes', env=path)[0], 0)
+        self.assertIn(f'Bash({commands}/arda *)', self.settings()['permissions']['allow'])
+        self.assertEqual(self.run_trust('--revoke', '--yes')[0], 0)  # even with the link no longer on PATH
+        self.assertEqual(self.settings()['permissions'], {'allow': ['Bash(ls)']})
+
     def test_only_rule_shapes_arda_wrote_are_touched(self):
         spaced = 'Bash(/old root/bin/arda *)'
         (self.claude / 'settings.json').write_text(json.dumps({'permissions': {

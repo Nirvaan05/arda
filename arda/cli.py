@@ -589,7 +589,7 @@ def grant_trust(herdr, args):
 
 def notify(herdr, text):
     """Show a result in Herdr's UI. Output of UI-launched plugin actions only reaches a log."""
-    if not os.environ.get('HERDR_PLUGIN_ID'):
+    if herdr is None or not os.environ.get('HERDR_PLUGIN_ID'):
         return
     try:
         herdr.call('notification', 'show', 'ARDA', '--body', text, timeout=10)
@@ -711,26 +711,40 @@ def fail(herdr, args, code, detail, exit_code):
     return exit_code
 
 
-def herdr_binary():
-    """The herdr executable ARDA runs.
+HERDR_PLACES = ('.local/bin/herdr', '/usr/local/bin/herdr', '/usr/bin/herdr')  # where Herdr's installers put it
 
-    Inside Herdr it is the one the Herdr server that owns this pane runs, never
-    HERDR_BIN_PATH: agents may run arda outside their sandbox, and the caller sets
-    its environment. Outside Herdr, HERDR_BIN_PATH or herdr on PATH.
+
+def herdr_binary():
+    """The herdr executable ARDA runs; never one the caller names.
+
+    Agents may run arda outside their sandbox, and the caller sets its environment, so
+    neither HERDR_BIN_PATH nor PATH may choose the program ARDA runs. Inside Herdr it is
+    the executable of the Herdr server that owns this pane. Outside Herdr it is herdr
+    where its installers put it, under the real home directory or the system.
     """
     server = _under_herdr()
-    if type(server) is not int:
-        return None
-    try:
-        binary = os.readlink(f'/proc/{server}/exe')
-    except OSError:
-        return None
-    return binary.removesuffix(' (deleted)')  # updated since the server started: the new file at that path
+    if type(server) is int:
+        try:
+            return os.readlink(f'/proc/{server}/exe').removesuffix(' (deleted)')  # updated since: same path
+        except OSError:
+            pass
+    for place in HERDR_PLACES:
+        candidate = os.path.join(real_home(), place)  # absolute places stay as they are
+        if os.access(candidate, os.X_OK):
+            return candidate
+    raise UsageError('cannot find herdr in ~/.local/bin, /usr/local/bin or /usr/bin; ARDA does not take it from '
+                     'HERDR_BIN_PATH or PATH, which whoever runs it can set')
 
 
 def main(argv=None):
     args = parse_args(argv)
-    herdr = Herdr(binary=herdr_binary(), session=args.session)
+    try:
+        herdr = Herdr(binary=herdr_binary(), session=args.session)
+    except UsageError as err:
+        if args.command != 'status':
+            print(f'arda: {err}', file=sys.stderr)
+            return EXIT_USAGE
+        herdr = None  # status needs no Herdr; without one there is no notification either
     try:
         data, text = HANDLERS[args.command](herdr, args)
     except (UsageError, EnvelopeError, trust.TrustError, OSError, UnicodeDecodeError) as err:
@@ -757,7 +771,11 @@ def trust_main(argv=None):
     parser.add_argument('--version', action='version', version=f'arda-trust {__version__}')
     args = parser.parse_args(argv)
     args.session, args.command = None, 'trust'
-    herdr = Herdr(binary=herdr_binary())
+    try:
+        herdr = Herdr(binary=herdr_binary())
+    except UsageError as err:
+        print(f'arda-trust: {err}', file=sys.stderr)
+        return EXIT_USAGE
     try:
         data, text = grant_trust(herdr, args)
     except (UsageError, trust.TrustError, OSError) as err:
