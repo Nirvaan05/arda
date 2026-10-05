@@ -228,6 +228,10 @@ Claude Code and Codex are tested. Herdr types prompts only into agent kinds it s
   send and says so. Start Codex with `--no-daemon`.
 - **Codex: sandbox.** Codex's workspace sandbox blocks the Herdr socket. `arda-trust`
   allows the `arda` command; otherwise approve it when Codex asks.
+- **Native identity.** `herdr integration install claude` and `codex` make Herdr report each
+  agent's conversation, which ARDA uses as its reply address. Codex asks you once to review
+  and trust the new hook (a hooks dialog in its pane); until you do, Herdr does not see that
+  dialog as blocked, and a message typed into it is lost.
 - **Restarts.** Herdr restores the pane layout after a server restart. It relaunches agents
   and restores their names only when Herdr's official integration for that agent is
   installed (`herdr integration`). Otherwise start the agents again; replies to messages
