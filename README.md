@@ -70,7 +70,7 @@ cannot reach the sender cannot reply to it, and ARDA reports that rather than gu
 
 ## Requirements
 
-- Linux and Python 3.11 or later; no other dependencies.
+- Linux and Python 3.11 or later (`python3`); no other dependencies.
 - Herdr 0.9.3 or later.
 - Agents running in Herdr panes and started with names, e.g.
   `herdr agent start codex --kind codex --pane <pane>`. Tested with Claude Code and
@@ -78,14 +78,23 @@ cannot reach the sender cannot reply to it, and ARDA reports that rather than gu
 
 ## Install
 
-From a clone of this repository, on every machine whose agents should take part:
+On every machine whose agents should take part:
 
 ```sh
-herdr plugin link "$PWD"
-ln -s "$PWD/bin/arda" ~/.local/bin/arda   # put arda on PATH
+herdr plugin install Nirvaan05/arda
+root=$(herdr plugin list --plugin arda --json |
+  python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["plugins"][0]["plugin_root"])')
+ln -s "$root/bin/arda" ~/.local/bin/arda   # put arda on PATH
 ```
 
-To remove it, run `herdr plugin unlink arda` and delete the link.
+Herdr keeps an installed plugin at a fixed path, so the link survives updates. To update,
+run `herdr plugin install Nirvaan05/arda` again (Herdr has no separate update command),
+then `arda trust --status`. To remove it, run `herdr plugin uninstall arda` and delete
+the link.
+
+To work on ARDA, link a clone instead: `herdr plugin link "$PWD"` and
+`ln -s "$PWD/bin/arda" ~/.local/bin/arda`. Herdr refuses to install a plugin from GitHub
+while one with the same id is linked; `herdr plugin unlink arda` first.
 
 ## Approve ARDA once
 
@@ -176,7 +185,9 @@ actions, commands also show their result as a Herdr notification.
   because the name must be unique among them: one Herdr round trip per saved machine,
   plus the prompt itself. A reply names the exact agent that asked, so it asks saved
   machines only when that agent is not on this machine. Each lookup gives up after 10
-  seconds, so one machine that hangs slows a send down but cannot stall it.
+  seconds, so one machine that hangs slows a send down but cannot stall it. Herdr shares
+  one SSH connection per saved machine by default (`[remote] manage_ssh_config`); with
+  that turned off, every lookup on a saved machine is a full SSH handshake.
 - Nothing is stored. If a message cannot be delivered, ARDA reports it and does not
   retry.
 - Cross-machine messaging has been verified with real Herdr servers and Herdr's own
