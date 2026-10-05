@@ -20,6 +20,7 @@ added, including what older versions installed as `arda trust`.
 import contextlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -127,10 +128,14 @@ def claude_permissions(script):
             'deny': [rule for name in trusts for rule in (f'Bash({name})', f'Bash({name} *)')]}
 
 
-def legacy_claude_permissions(script):
-    """Rules older versions added while trust was still `arda trust`; removed on grant and revoke."""
-    names = ['arda', *script_paths(script)]
-    return {'deny': [rule for name in names for rule in (f'Bash({name} trust)', f'Bash({name} trust *)')]}
+# Every Claude Code rule shape any ARDA version wrote, for any install root: the bare commands, or
+# a full path ending in bin/arda or bin/arda-trust, optionally with ` trust` and ` *`. Grant
+# removes those it does not want now (an older version, a moved install); revoke removes all.
+_OURS = re.compile(r'Bash\((?:arda|arda-trust|/\S*/bin/arda|/\S*/bin/arda-trust)(?: trust)?(?: \*)?\)')
+
+
+def ours(rule):
+    return isinstance(rule, str) and bool(_OURS.fullmatch(rule))
 
 
 def plan(script):
@@ -139,11 +144,12 @@ def plan(script):
     claude = claude_home()
     if claude.is_dir():
         steps.append({'harness': 'claude', 'path': claude / 'rules' / 'arda.md', 'content': CLAUDE_RULES})
-        steps.append({'harness': 'claude', 'path': claude / 'settings.json', 'rules': claude_permissions(script),
-                      'legacy': legacy_claude_permissions(script)})
+        steps.append({'harness': 'claude', 'path': claude / 'settings.json', 'rules': claude_permissions(script)})
     codex = codex_home()
     if codex.is_dir():
-        steps.append({'harness': 'codex', 'path': codex_instructions(codex), 'block': CODEX_BLOCK})
+        selected = codex_instructions(codex)
+        others = [path for path in (codex / 'AGENTS.md', codex / 'AGENTS.override.md') if path != selected]
+        steps.append({'harness': 'codex', 'path': selected, 'block': CODEX_BLOCK, 'others': others})
         steps.append({'harness': 'codex', 'path': codex / 'rules' / 'arda.rules',
                       'content': CODEX_RULES.format(paths=json.dumps(script_paths(script)),
                                                     trust_paths=json.dumps(script_paths(trust_script(script))))})
@@ -162,11 +168,18 @@ def status(script):
             state = ('not installed' if not span
                      else 'installed' if _text(path)[span[0]:span[1]].rstrip('\n') == step['block'].rstrip('\n')
                      else OUTDATED)
+            stray = [other for other in step['others'] if other.exists() and _block(other)]
+            if stray:
+                state += f'; also in {", ".join(map(str, stray))}, which Codex does not read now (run arda-trust --yes)'
         else:
             permissions = _settings(path).get('permissions', {})
             present = all(rule in permissions.get(kind, []) for kind, rules in step['rules'].items()
                           for rule in rules)
+            stale = [rule for kind in ('allow', 'deny') for rule in permissions.get(kind, [])
+                     if ours(rule) and rule not in step['rules'].get(kind, [])]
             state = 'allowed' if present else 'not allowed (run arda-trust --yes)'
+            if stale:
+                state += f'; rules for another ARDA install or version: {", ".join(stale)} (run arda-trust --yes)'
         lines.append(f'{step["harness"]}: {path}: {state}')
     return lines or ['no Claude Code or Codex configuration directory found']
 
@@ -195,6 +208,11 @@ def apply(script, revoke=False):
     intact, and Codex must accept the generated rules.
     """
     steps = plan(script)
+    found = shutil.which('arda')
+    if not revoke and found and Path(found).resolve() != script.resolve():
+        raise TrustError(f'the arda on your PATH ({found} -> {Path(found).resolve()}) is not this installation '
+                         f'({script}). The approval covers whatever `arda` PATH finds, so nothing was changed: '
+                         'remove or relink it first.')
     loaded = {}
     for step in steps:
         path = step['path']
@@ -203,7 +221,8 @@ def apply(script, revoke=False):
         elif 'content' in step and path.exists() and not _owned(_text(path), step['content']):
             raise TrustError(f'{path} exists and was not written by ARDA; not changing it')
         elif 'block' in step:
-            _block(path)
+            for each in (path, *step['others']):
+                _block(each)
     done = []
     for step in steps:
         checkable = 'content' in step and step['harness'] == 'codex' and not revoke
@@ -221,43 +240,36 @@ def apply(script, revoke=False):
                 done.append(f'wrote {path}')
             continue
         if 'block' in step:
-            new = _without_block(path) if revoke else _with_block(path, step['block'])
-            if new != _text(path):
-                if revoke and not new.strip():
-                    path.unlink()  # nothing but ARDA's section was in it
-                else:
-                    _write(path, new)
-                done.append(f'{"removed the ARDA section from" if revoke else "added the ARDA section to"} {path}')
+            # The section belongs in the file Codex reads now, and nowhere else: a section left in
+            # the other file would come back when Codex switches to it.
+            for each in (path, *step['others']):
+                add = each == path and not revoke
+                if not add and not each.exists():
+                    continue
+                new = _with_block(each, step['block']) if add else _without_block(each)
+                if new != _text(each):
+                    if not add and not new.strip():
+                        each.unlink()  # nothing but ARDA's section was in it
+                    else:
+                        _write(each, new)
+                    done.append(f'{"added the ARDA section to" if add else "removed the ARDA section from"} {each}')
             continue
         settings = loaded[path]
         permissions = settings.setdefault('permissions', {}) if not revoke else settings.get('permissions', {})
         changed = []
-        for kind, legacy in step.get('legacy', {}).items():
+        for kind in ('allow', 'deny'):
             current = permissions.get(kind, [])
-            kept = [rule for rule in current if rule not in legacy]
-            if len(kept) != len(current):
+            wanted = [] if revoke else step['rules'].get(kind, [])
+            kept = [rule for rule in current if not ours(rule) or rule in wanted]
+            new = kept + [rule for rule in wanted if rule not in kept]
+            if new != current:
                 changed.append(kind)
-                if kept:
-                    permissions[kind] = kept
+                if new:
+                    permissions[kind] = new
                 else:
-                    del permissions[kind]
-        for kind, rules in step['rules'].items():
-            current = permissions.get(kind, [])
-            if revoke:
-                kept = [rule for rule in current if rule not in rules]
-                if len(kept) != len(current):
-                    changed.append(kind)
-                    if kept:
-                        permissions[kind] = kept
-                    else:
-                        del permissions[kind]  # only lists that ARDA's rules alone filled
-            else:
-                missing = [rule for rule in rules if rule not in current]
-                if missing:
-                    permissions[kind] = current + missing
-                    changed.append(kind)
-        if revoke and changed and not permissions:
-            del settings['permissions']
+                    permissions.pop(kind, None)  # only lists that ARDA's rules alone filled
+        if changed and not permissions:
+            settings.pop('permissions', None)
         if changed:
             _write(path, json.dumps(settings, indent=2, ensure_ascii=False) + '\n')
             verb = 'removed ARDA rules from' if revoke else 'updated ARDA rules in'

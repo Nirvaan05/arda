@@ -161,6 +161,43 @@ class TrustTests(CliCase):
         self.assertEqual([p.name for p in self.codex.iterdir() if p.name.endswith('.arda-tmp') and not p.is_symlink()],
                          [])  # no staging file left behind
 
+    def test_grant_refuses_when_the_arda_on_path_is_another_install(self):
+        bindir = Path(self.tmp.name) / 'bin'
+        bindir.mkdir()
+        (bindir / 'arda').symlink_to('/bin/true')  # an older checkout, or anything else named arda
+        code, _, err = self.run_trust('--yes', env={'PATH': f'{bindir}:/usr/bin:/bin'})
+        self.assertEqual(code, 2)
+        self.assertIn('is not this installation', err)
+        self.assertFalse((self.claude / 'rules').exists())
+
+    def test_rules_from_a_moved_or_older_install_are_cleaned_up_and_user_rules_kept(self):
+        old = ['Bash(/old/root/bin/arda *)', 'Bash(/old/root/bin/arda trust)', 'Bash(/old/root/bin/arda trust *)']
+        (self.claude / 'settings.json').write_text(json.dumps({'permissions': {
+            'allow': ['Bash(ls)', old[0], 'Bash(ardavark *)'], 'deny': ['Bash(rm *)', *old[1:]]}}))
+        self.assertIn('rules for another ARDA install', self.run_trust('--status')[1])
+        self.assertEqual(self.run_trust('--yes')[0], 0)
+        permissions = self.settings()['permissions']
+        self.assertEqual([rule for rule in old if rule in permissions['allow'] + permissions['deny']], [])
+        self.assertIn('Bash(ardavark *)', permissions['allow'])
+        self.assertEqual(self.run_trust('--revoke', '--yes')[0], 0)
+        self.assertEqual(self.settings(), {'permissions': {'allow': ['Bash(ls)', 'Bash(ardavark *)'],
+                                                           'deny': ['Bash(rm *)']}})
+
+    def test_consent_follows_the_instruction_file_codex_reads(self):
+        agents, override = self.codex / 'AGENTS.md', self.codex / 'AGENTS.override.md'
+        self.assertEqual(self.run_trust('--yes')[0], 0)
+        override.write_text('# Override\n')  # Codex now reads this file instead
+        self.assertIn('which Codex does not read now', self.run_trust('--status')[1])
+        self.assertEqual(self.run_trust('--yes')[0], 0)  # the section moves
+        self.assertIn('arda-trust:begin', override.read_text())
+        self.assertEqual(agents.read_text(), '# My own instructions\n')
+        override.write_text('# Override\n')
+        self.run_trust('--yes')
+        override.write_text(override.read_text())  # unchanged; now revoke with both present
+        agents.write_text(agents.read_text() + '\n' + trust.CODEX_BLOCK)  # a stray section left elsewhere
+        self.assertEqual(self.run_trust('--revoke', '--yes')[0], 0)
+        self.assertNotIn('arda-trust', agents.read_text() + override.read_text())
+
     def test_codex_override_file_takes_the_section_when_codex_reads_it(self):
         (self.codex / 'AGENTS.override.md').write_text('# Override\n')
         self.run_trust('--yes')

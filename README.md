@@ -96,13 +96,16 @@ ARDA is a convenience layer, not a security boundary.
   send whatever it can read to any agent in your Herdr environment, including on other
   machines. Each harness's own permission prompts and sandbox still govern what the
   receiver does. Grant trust only where every agent may work for every other.
-- **Only you can extend the approval.** It allows the `arda` command, which has no way to
-  change trust. Trust is changed only by `arda-trust`, a separate command the approval does
-  not cover: Claude Code's deny rules and a Codex forbidden rule keep agents from running it,
-  and it also refuses when it detects an agent's pane (a best-effort extra check). Run it
-  yourself and check `arda-trust --status`. `--file` reads only from the working directory or
-  the temporary directory, which keeps accidents small but is not a boundary against a
-  determined agent.
+- **The approval covers `arda`, and `arda` cannot change it.** Trust is changed only by
+  `arda-trust`, a separate command: Claude Code's deny rules and a Codex forbidden rule keep
+  agents from running it by name or path, it refuses to run under another name, and it
+  refuses when it detects an agent's pane (an extra, best-effort check). Both commands run
+  Python isolated, with the interpreter from the standard system PATH, so the caller's
+  environment cannot make them run other code. This assumes the `arda` on PATH is this
+  installation (`arda-trust` refuses to grant otherwise) and that its files are not
+  writable by the agents. Run `arda-trust` yourself and check `arda-trust --status`.
+  `--file` reads only visible files from the working directory or /tmp, checked on the file
+  it opened; that keeps accidents small but is not a boundary against a determined agent.
 - **Delivery is at most once,** with no retry, queue, replay protection or completion
   guarantee.
 
