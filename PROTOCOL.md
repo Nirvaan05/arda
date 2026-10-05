@@ -13,7 +13,7 @@ An address names a participant, not a terminal.
 | --- | --- |
 | `@codex` | The live Herdr agent named `codex`, wherever it runs in the sender's Herdr environment. |
 | `@codex@desktop` | The agent `codex` in the place `desktop`: a Herdr session on this machine or a saved Herdr machine. Needed only when the name runs in more than one place. |
-| `@claude.1806d161` | The agent `claude` whose Herdr terminal ID ends in `1806d161`. Senders identify themselves this way, so replies reach them and no other agent with the same name. |
+| `@claude.1806d161` | The agent `claude` whose Herdr terminal ID ends in `1806d161`. Senders identify themselves this way, so a reply cannot reach another terminal with the same name. It cannot tell apart two agents started one after another in the same terminal under the same name. |
 | `w1:p2`, `w1:p2@desktop` | A Herdr pane ID, for agents without a name. A route in one Herdr server, not an identity; an agent without a name can only message agents in its own place. |
 | `@arda` | Reserved for messages from ARDA itself, such as introductions. It cannot be addressed, and an agent named `arda` cannot send. Like every sender, it is not authenticated. |
 

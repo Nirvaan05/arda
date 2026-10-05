@@ -43,8 +43,8 @@ to a file and pass `--file PATH` instead; refer to other files by path.
 - An address is a live Herdr agent name (`@codex`), wherever it runs: on this machine
   or on a machine saved in Herdr. If a name runs in more than one place, ARDA asks you
   to add the place shown by `arda peers`, as in `@codex@desktop`. Copy reply addresses
-  exactly as messages show them (`@claude.1806d161`): the part after the dot makes sure the
-  reply reaches the agent that asked. If you have no name, peers can reach you only by
+  exactly as messages show them (`@claude.1806d161`): the part after the dot keeps the
+  reply away from another terminal that has the same name. If you have no name, peers can reach you only by
   pane ID; ask the user before renaming yourself.
 - After `arda task`, do not wait, poll or sleep. The ack and the result arrive as new
   prompts that start with `[arda/1`. Carry on with other work or end your turn.
