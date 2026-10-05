@@ -94,7 +94,11 @@ The receiver answers:
   blockers and changes of plan.
 - `result` with what was done, how it was checked (the command and its outcome) and where
   the work is: a commit, branch, pull request or file. A path names a file on the
-  receiver's machine only; across machines, give a git ref or the content.
+  receiver's machine only, and a commit that was never pushed exists only in the
+  receiver's clone. Across machines, give a reference the requester can actually fetch,
+  or the content or patch itself; publishing work only so it can be referenced is not
+  part of the task unless the task allows it. Findings, reviews and other results that
+  change nothing go in the `result` itself.
 - `reject` saying whether it **will not** do the task (it is outside its role, or its user
   does not allow it) or **could not** finish it (what it tried and where it stopped).
 
@@ -103,18 +107,24 @@ says so in its `result` or `reject` rather than going along with it.
 
 **Durability.** ARDA stores nothing, so the record of a task lives with the agents and in
 the project. The requester keeps the ids of the tasks it handed over, for example in its
-plan. The receiver commits or writes its work before it sends the `result`, so a reply
-that is not delivered loses only the message, and it can send the `result` again.
+plan. When the task is to change files, the receiver commits or writes those changes, as
+far as the task allows, before it sends the `result`, so a reply that is not delivered
+loses only the message, and it can send the `result` again. A task that asks for no
+changes needs no artifact: its outcome is the `result`.
 
 **After `uncertain`.** The task may have arrived. Do not send it again unprompted: check
 the receiver with `arda peers`, then ask with a `note re=<id>` whether it has the task,
 and send it again only if it says no.
 
 **Stopping and passing on.** There is no cancel message. To withdraw a task, send a
-`note re=<id>` asking the receiver to stop; it confirms with `reject` ("stopped on
-request"), and until then it may still be working. A receiver that hands part of the work
-to another agent tells the requester with a `note re=<id>` and still owes the `result`.
-Follow-ups about a task go to the address its `ack` came from.
+`note re=<id>` asking the receiver to stop. A request to stop is not evidence that work
+stopped: until the receiver answers, it may still be working. A receiver that is still
+working stops, asks any agent it handed part of the work to to stop as well, and then
+answers with `reject` ("stopped on request"), saying what was done and anything that may
+still be running. A receiver that already sent its `result` answers with a `note re=<id>`
+saying so, not with a `reject`. A receiver that hands part of the work to another agent
+tells the requester with a `note re=<id>` and still owes the `result`. Follow-ups about a
+task go to the address its `ack` came from.
 
 **Relation to A2A.** These messages cover the core of the task lifecycle in Google's
 Agent2Agent protocol, carried by terminal prompts instead of HTTP servers and task stores:
@@ -187,18 +197,20 @@ An agent can tell its peers what it does, which tools it uses and which model it
 | `arda-role` | What the agent does and is good at. |
 | `arda-tools` | Tools it uses. |
 | `arda-model` | The model it runs on. |
-| `arda-by` | The agent that wrote the description: its harness and native token (`claude:s3e42…`), or without one, its harness, terminal fingerprint and a hash of its name. |
+| `arda-role-by`, `arda-tools-by`, `arda-model-by` | The agent that wrote that field: its harness and native token (`claude:s3e42…`), or without one, its harness, terminal fingerprint and a hash of its name. |
 
 Each value is one line of at most 80 characters, which is Herdr's limit for a metadata
-value. Herdr keeps pane metadata when the agent in the pane exits, so a description is shown
-only while `arda-by` still matches the agent in the pane. With a native token it follows
-the conversation through renames and is hidden after the conversation changes. Without
-one, a new agent of the same harness started in the same terminal under the same name
-cannot be told apart and inherits the description. An update changes only the fields it
-names; fields left by an earlier agent are removed when a new agent first describes itself.
+value. Herdr keeps pane metadata when the agent in the pane exits, so a field is shown
+only while its `-by` token still matches the agent in the pane. With a native token it
+follows the conversation through renames and is hidden after the conversation changes.
+Without one, renaming the agent hides it, and a new agent of the same harness started in
+the same terminal under the same name cannot be told apart and inherits it. An update sets
+or clears only the fields it names, and never clears a field on another agent's behalf (an
+earlier agent's fields are hidden instead), so updates made at the same time cannot undo
+each other.
 
 A description is the pane's own claim and is not verified: any process that can use the
-Herdr session can set these tokens, `arda-by` included. Herdr does not restore them after a
+Herdr session can set these tokens, the `-by` tokens included. Herdr does not restore them after a
 server restart. `arda peers` shows them on their own line, marked as self-described and not
 verified, each value encoded as a JSON string, next to what Herdr observes (harness, state,
 working directory, place and when it looked); control and invisible characters in observed

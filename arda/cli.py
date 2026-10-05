@@ -642,9 +642,10 @@ def notify(herdr, text):
 # What an agent says about itself, kept by Herdr as metadata on its own pane and shown by `arda peers`.
 DESCRIPTION = {'role': 'arda-role', 'tools': 'arda-tools', 'model': 'arda-model'}
 DESCRIPTION_LIMIT = 80  # Herdr keeps at most 80 characters of a metadata value
-# Herdr keeps pane metadata when the agent in the pane exits, so a description names the agent that
-# wrote it and is shown only while that agent is the one in the pane.
-DESCRIBED_BY = 'arda-by'
+# Herdr keeps pane metadata when the agent in the pane exits, so each field names the agent that wrote
+# it (in "<field token>-by") and is shown only while that agent is the one in the pane. Fields are
+# never cleared on another agent's behalf, so updates at the same time cannot undo each other.
+BY = '-by'
 
 
 def describer(agent):
@@ -666,11 +667,10 @@ def describer(agent):
 
 def described(agent):
     tokens = agent.get('tokens') if isinstance(agent.get('tokens'), dict) else {}
-    if not describer(agent) or tokens.get(DESCRIBED_BY) != describer(agent):
-        return {}
+    by = describer(agent)
     # Any process that can reach Herdr can set pane metadata, so this is what the pane claims, not a fact.
     texts = {field: ' '.join(clean(tokens[key]).split()) for field, key in DESCRIPTION.items()
-             if isinstance(tokens.get(key), str)}
+             if by and tokens.get(key + BY) == by and isinstance(tokens.get(key), str)}
     return {field: text[:DESCRIPTION_LIMIT] for field, text in texts.items() if text}
 
 
@@ -710,20 +710,14 @@ def cmd_describe(herdr, args):
                 raise UsageError(f'--{field} is {len(given[field])} characters; Herdr keeps at most '
                                  f'{DESCRIPTION_LIMIT}')
     if args.clear or given:
-        # Only the fields asked for change, so two updates at once do not undo each other. Fields
-        # written by an earlier agent in this pane go when this one first describes itself.
-        tokens = agent.get('tokens') if isinstance(agent.get('tokens'), dict) else {}
-        earlier = tokens.get(DESCRIBED_BY) != by
-        setting = {DESCRIPTION[field]: text for field, text in given.items() if text}
-        clearing = [DESCRIPTION[field] for field, text in given.items() if not text]
-        clearing += [key for field, key in DESCRIPTION.items()
-                     if field not in given and (args.clear or (earlier and key in tokens))]
-        if setting:
-            setting[DESCRIBED_BY] = by
-        elif args.clear:
-            clearing.append(DESCRIBED_BY)
-        if setting or clearing:
-            herdr.report_metadata(me['pane_id'], setting, clearing)
+        # Only the fields asked for change; another agent's fields are hidden, not cleared.
+        setting, clearing = {}, []
+        for field, key in DESCRIPTION.items():
+            if given.get(field):
+                setting.update({key: given[field], key + BY: by})
+            elif field in given or args.clear:
+                clearing += [key, key + BY]
+        herdr.report_metadata(me['pane_id'], setting, clearing)
         agent = herdr.agent(me['pane_id'])
     mine = described(agent)
     if not mine:

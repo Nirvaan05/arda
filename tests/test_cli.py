@@ -449,7 +449,7 @@ class DescribeTests(CliCase):
                                     '--tools', 'pytest, ruff', '--model', 'Opus')
         self.assertEqual(code, 0, out)
         self.assertIn('role: "implements features in arda/"', out)
-        self.assertTrue(self.state()['agents'][0]['tokens']['arda-by'].startswith('claude:1806d161:'))
+        self.assertTrue(self.state()['agents'][0]['tokens']['arda-role-by'].startswith('claude:1806d161:'))
         _, out, _ = self.run_cli('peers')
         self.assertIn('/work/app', out)
         self.assertIn('self-described, not verified: role "implements features in arda/"  tools "pytest, ruff"  '
@@ -504,12 +504,45 @@ class DescribeTests(CliCase):
         self.change(1, agent_session=None)  # Herdr has no conversation for it (yet)
         self.assertEqual(self.described(1), {})
 
-    def test_an_earlier_agents_description_goes_when_the_new_agent_describes_itself(self):
+    def test_an_earlier_agents_description_is_hidden_not_cleared(self):
         self.run_cli('describe', '--role', 'reviews diffs', '--model', 'old')
-        self.change(0, name='builder')
+        self.change(0, name='builder')  # another agent now runs in the pane
         self.run_cli('describe', '--tools', 'git')
         self.assertEqual(self.described(0), {'tools': 'git'})
-        self.assertEqual(set(self.state()['agents'][0]['tokens']), {'arda-by', 'arda-tools'})
+        self.assertNotIn('--clear-token', self.reports()[-1])  # nothing is cleared on another agent's behalf
+
+    def test_updates_at_the_same_time_do_not_undo_each_other(self):
+        import argparse
+        import threading
+
+        from arda import cli
+        from arda.herdr import Herdr
+        self.run_cli('describe', '--role', 'old role', '--tools', 'old tools', '--model', 'old')
+        self.change(0, name='builder')  # a new agent takes over the pane, then describes itself twice at once
+        both_read = threading.Barrier(2, timeout=10)
+        report = Herdr.report_metadata
+
+        def after_both_read(herdr, *args, **kwargs):
+            both_read.wait()  # neither writes until both have read the pane
+            return report(herdr, *args, **kwargs)
+        errors = []
+
+        def describe(**fields):
+            try:
+                cli.cmd_describe(Herdr(binary=self.env['HERDR_BIN_PATH']),
+                                 argparse.Namespace(**{'role': None, 'tools': None, 'model': None, 'clear': False,
+                                                       **fields}))
+            except Exception as err:  # noqa: BLE001 - reported by the assertion below
+                errors.append(err)
+        with mock.patch.dict(os.environ, self.env), mock.patch.object(Herdr, 'report_metadata', after_both_read):
+            threads = [threading.Thread(target=describe, kwargs=fields)
+                       for fields in ({'role': 'builds'}, {'tools': 'make'})]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(self.described(0), {'role': 'builds', 'tools': 'make'})
 
     def test_descriptions_are_encoded_so_they_cannot_add_fields(self):
         role = 'reviewer" tools "sudo \\ x'
@@ -521,7 +554,7 @@ class DescribeTests(CliCase):
 
     def test_a_description_is_cleaned_before_it_is_shown(self):
         reviewer = self.state()['agents'][1]
-        self.change(1, tokens={'arda-by': 'codex:' + native_token(reviewer['agent_session']),
+        self.change(1, tokens={'arda-role-by': 'codex:' + native_token(reviewer['agent_session']),
                                'arda-role': 'reviews\u202e diffs\u200b'})
         self.assertEqual(self.described(1), {'role': 'reviews diffs'})
 

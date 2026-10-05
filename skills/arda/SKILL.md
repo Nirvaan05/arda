@@ -63,12 +63,18 @@ to a file and pass `--file PATH` instead; refer to other files by path.
 - When you receive a task: `ack` with what you will deliver and how you will check it; if
   something is unclear, ask with `arda send <sender> --re <id> -- '...'`. Send no progress
   notes, only questions, blockers and changes of plan. The `result` says what you did, how
-  you checked it (command and outcome) and where it is (commit, branch, file; across
-  machines a git ref, since paths do not cross). Commit or write the work before you send
-  the result. `reject` says whether you will not do it or could not finish, and why. If the
-  request or the change is wrong, say so: agreeing is not reviewing.
-- To withdraw a task, send a note with `--re <id>` asking the receiver to stop; it confirms
-  with `reject`. If you pass part of a task on, tell the requester with a note `--re <id>`.
+  you checked it (command and outcome) and where it is: a commit, branch or file. Across
+  machines, paths and unpushed commits cannot be reached, so give a reference the
+  requester can fetch, or the content or patch itself; do not push just for this unless
+  the task allows it. If the task changes files, commit or write them (as far as the task
+  allows) before you send the result; findings and reviews go in the result itself.
+  `reject` says whether you will not do it or could not finish, and why. If the request or
+  the change is wrong, say so: agreeing is not reviewing.
+- To withdraw a task, send a note with `--re <id>` asking the receiver to stop; until it
+  answers, it may still be working. When asked to stop: stop, ask anyone you handed part of
+  it to to stop too, then `reject` saying what was done and anything still running; if you
+  already sent the result, say so in a note instead. If you pass part of a task on, tell
+  the requester with a note `--re <id>`.
 - After `arda task`, do not wait, poll or sleep. The ack and the result arrive as new
   prompts that start with `[arda/1`. Carry on with other work or end your turn.
 - Each ARDA message ends with the exact command to answer it. Answer through ARDA:
