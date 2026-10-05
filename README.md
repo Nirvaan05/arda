@@ -146,15 +146,16 @@ ARDA is a convenience layer, not a security boundary.
   machines. Each harness's own permission prompts and sandbox still govern what the
   receiver does. Grant trust only where every agent may work for every other.
 - **The approval covers `arda`, and `arda` cannot change it.** Trust is changed only by
-  `arda-trust`, a separate command: Claude Code's deny rules and a Codex forbidden rule keep
-  agents from running it by name or path, it refuses to run under another name, and it
-  refuses when it detects an agent's pane (an extra, best-effort check). Both commands run
-  Python isolated, with the interpreter from the standard system PATH, so the caller's
-  environment cannot make them run other code. This assumes the `arda` on PATH is this
-  installation (`arda-trust` refuses to grant otherwise) and that its files are not
-  writable by the agents. Run `arda-trust` yourself and check `arda-trust --status`.
-  `--file` reads only visible files from the working directory or /tmp, checked on the file
-  it opened; that keeps accidents small but is not a boundary against a determined agent.
+  `arda-trust`, a separate command. It refuses to run under another name or from an agent's
+  pane, both commands run Python isolated with the interpreter from the standard system PATH,
+  and the installed rules tell Claude Code (deny rules) and Codex (a forbidden rule) not to
+  let agents run it. These are guards, not a boundary: Claude Code documents its Bash deny
+  rules as not a security boundary (they miss commands wrapped in `sh -c`, for example), and
+  any process running as you that can reach Herdr can type into a pane, including a
+  Claude Code `!` shell command. Codex's sandbox is the strongest of them. Approve ARDA only
+  where every agent may work for every other, and check `arda-trust --status`. `--file`
+  reads only visible files from the working directory or /tmp, checked on the file it
+  opened; that keeps accidents small but is not a boundary against a determined agent.
 - **Delivery is at most once,** with no retry, queue, replay protection or completion
   guarantee.
 
