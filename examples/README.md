@@ -41,10 +41,13 @@ can come back. ARDA is installed on both.
 
 ```text
 implementer$ arda peers
-main: Herdr session main on this machine (laptop) (you are here)
-  @implementer         claude     working  (you)
-desktop: saved machine desktop, Herdr session default
-  @reviewer            codex      idle
+2 agents in 2 places: 1 working, 1 idle
+
+main · Herdr session on this machine (laptop) · you are here
+  ● @implementer  claude  working  ~/src/app  (you)
+
+desktop · saved machine desktop, Herdr session default
+  ○ @reviewer     codex   idle     /home/me/src/app
 
 implementer$ arda task @reviewer -- 'Review the migration in db/0042.sql; it must be safe to run twice.'
 ```

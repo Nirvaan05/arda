@@ -417,36 +417,59 @@ def cmd_peers(herdr, args):
                         'observed_at': p.observed_at} for p in places],
             'peers': peers,
             'resolution': resolution(places, 'inventory', places)}
-    rows = [f'cannot list {e["operation"]}: {e["code"]}: {e["message"]}; places may be missing'
-            for e in places.discovery_errors]
+    return data, '\n'.join(listing(places, peers))
+
+
+# How `arda peers` marks an agent's state, as Codex marks its agents: ● busy, ○ ready, ! needs someone.
+STATE_MARK = {'working': '●', 'blocked': '!', 'idle': '○', 'done': '○'}
+NOTE = "Role, tools, model: each agent's own description (arda describe), not verified."
+
+
+def listing(places, peers):
+    """The text of `arda peers`: a summary, then each place with its agents, one per row."""
+    home = real_home()
+    answered = [place for place in places if place.reachable and not place.skipped]
+    states = Counter(peer['state'] or 'unknown' for peer in peers)
+    counts = ', '.join(f'{states[state]} {state}' for state in ('working', 'blocked', 'idle', 'done')
+                       if states[state])
+    others = sum(states.values()) - sum(states[state] for state in ('working', 'blocked', 'idle', 'done'))
+    counts += f', {others} unknown' if others else ''
+    summary = f'{len(peers)} agent{"s" * (len(peers) != 1)} in {len(answered)} place{"s" * (len(answered) != 1)}'
+    summary += f': {counts.lstrip(", ")}' if peers else ''
+    missing = len(places) - len(answered)
+    summary += f'; {missing} place{"s" * (missing != 1)} did not answer' if missing else ''
+    rows = [f'! cannot list {e["operation"]}: {e["code"]}: {e["message"]}; places may be missing'
+            for e in places.discovery_errors] + [summary]
+    width = {key: max([len(shown(peer[key] or '?')) for peer in peers] + [1]) for key in ('address', 'agent', 'state')}
+    claimed = False
     for place in places:
-        where = (f'Herdr session {place.session} on this machine ({place.machine})' if place.kind == 'session'
+        where = (f'Herdr session on this machine ({place.machine})' if place.kind == 'session'
                  else f'saved machine {place.machine}, Herdr session {place.session}')
-        header = f'{place.name}: {where}' + (' (you are here)' if place.current else '')
+        rows += ['', f'{shown(place.name)} · {shown(where)}' + (' · you are here' if place.current else '')]
         if place.skipped:
-            rows.append(f'{header}: not asked ({place.skipped})')
+            rows.append(f'  – not asked ({place.skipped})')
             continue
         if not place.reachable:
-            rows.append(f'{header}: unreachable ({place.error})')
+            rows.append(f'  ✗ unreachable: {shown(place.error or "")}')
             continue
-        rows.append(header)
         here = [peer for peer in peers if peer['place'] == place.name]
-        home = real_home()
         for peer in here:
-            note = ' (you)' if peer['you'] else ('' if peer['name'] else ' (unnamed: address it by pane ID)')
+            note = '  (you)' if peer['you'] else ('' if peer['name'] else '  (unnamed: address it by pane ID)')
             cwd = peer['cwd'] or ''
             if place.kind == 'session' and (cwd == home or cwd.startswith(home + '/')):
                 cwd = '~' + cwd[len(home):]
-            rows.append(f'  {shown(peer["address"]):<20} {shown(peer["agent"] or "?"):<10} {shown(peer["state"] or "?"):<8} '
-                        f'{shown(cwd)}{note}')
-            # Each value is a JSON string, so a quote inside it cannot end it and start another field.
-            about = '  '.join(f'{field} {json.dumps(peer["described"][field], ensure_ascii=False)}'
-                              for field in DESCRIPTION if field in peer['described'])
-            if about:
-                rows.append(f'      self-described, not verified: {about}')
+            rows.append(f'  {STATE_MARK.get(peer["state"], "?")} {shown(peer["address"]):<{width["address"]}}  '
+                        f'{shown(peer["agent"] or "?"):<{width["agent"]}}  {shown(peer["state"] or "?"):<{width["state"]}}'
+                        f'  {shown(cwd)}{note}'.rstrip())
+            # One field per line; each value is a JSON string, so a quote inside it cannot end it.
+            for field in DESCRIPTION:
+                if field in peer['described']:
+                    claimed = True
+                    rows.append(f'      • {field.capitalize() + ":":<6} '
+                                f'{json.dumps(peer["described"][field], ensure_ascii=False)}')
         if not here:
             rows.append('  no agents')
-    return data, '\n'.join(rows)
+    return rows + (['', NOTE] if claimed else [])
 
 
 INTRODUCTION = """\
@@ -725,7 +748,8 @@ def cmd_describe(herdr, args):
         return ({'status': 'none', 'address': me['address']},
                 f"{me['address']} has not described itself. Peers see a description in `arda peers`: {hint}")
     lines = [f'{me["address"]} describes itself to peers as:']
-    lines += [f'  {field}: {json.dumps(mine[field], ensure_ascii=False)}' for field in DESCRIPTION if field in mine]
+    lines += [f'  • {field.capitalize() + ":":<6} {json.dumps(mine[field], ensure_ascii=False)}'
+              for field in DESCRIPTION if field in mine]
     return {'status': 'none', 'address': me['address'], **mine}, '\n'.join(lines)
 
 

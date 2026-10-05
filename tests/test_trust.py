@@ -271,6 +271,12 @@ class TrustTests(CliCase):
         self.assertIn('disable-model-invocation: true', front)
         self.assertIn('Run `arda peers`', skill)
 
+    def test_user_invoked_skills_are_explicit_only_in_codex_too(self):
+        for name in ('arda-peers', 'arda-setup'):
+            policy = (ROOT / 'skills' / name / 'agents' / 'openai.yaml').read_text()
+            self.assertIn('policy:\n  allow_implicit_invocation: false', policy, name)
+            self.assertIn(f'${name}', policy, name)
+
     def test_codex_override_file_takes_the_section_when_codex_reads_it(self):
         (self.codex / 'AGENTS.override.md').write_text('# Override\n')
         self.run_trust('--yes')

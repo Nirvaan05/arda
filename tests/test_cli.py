@@ -82,6 +82,13 @@ class CliTests(CliCase):
         self.assertEqual([(p['address'], p['you'], p['place']) for p in peers],
                          [('@claude', True, 'main'), ('@codex', False, 'main')])
 
+    def test_peers_marks_each_state_and_counts_them(self):
+        self.set_agents(agent('claude', 'w1:p1', status='working'), agent('codex', 'w1:p2', status='blocked'),
+                        agent('tester', 'w1:p3'), agent('pi', 'w1:p4', status='unknown'))
+        lines = self.run_cli('peers')[1].splitlines()
+        self.assertEqual(lines[0], '4 agents in 1 place: 1 working, 1 blocked, 1 idle, 1 unknown')
+        self.assertEqual([line[:3] for line in lines[3:]], ['  ●', '  !', '  ○', '  ?'])
+
     def test_task_to_idle_agent_is_delivered_with_activity_confirmation(self):
         code, out, _ = self.run_cli('task', '@codex', 'Review the diff.', '--json')
         result = json.loads(out)
@@ -448,12 +455,19 @@ class DescribeTests(CliCase):
         code, out, _ = self.run_cli('describe', '--role', 'implements features in arda/',
                                     '--tools', 'pytest, ruff', '--model', 'Opus')
         self.assertEqual(code, 0, out)
-        self.assertIn('role: "implements features in arda/"', out)
+        self.assertIn('  • Role:  "implements features in arda/"', out)
         self.assertTrue(self.state()['agents'][0]['tokens']['arda-role-by'].startswith('claude:1806d161:'))
         _, out, _ = self.run_cli('peers')
         self.assertIn('/work/app', out)
-        self.assertIn('self-described, not verified: role "implements features in arda/"  tools "pytest, ruff"  '
-                      'model "Opus"', out)
+        self.assertIn('\n  ○ @claude    claude  idle  /work/app  (you)'
+                      '\n      • Role:  "implements features in arda/"'
+                      '\n      • Tools: "pytest, ruff"'
+                      '\n      • Model: "Opus"'
+                      '\n  ○ @reviewer  codex   idle  /work/app\n', out)
+        self.assertTrue(out.startswith('2 agents in 1 place: 2 idle\n'))
+        self.assertTrue(out.endswith("\nRole, tools, model: each agent's own description (arda describe), "
+                                     'not verified.\n'))
+        self.assertTrue(all(len(line) <= 80 for line in out.splitlines()), out)
         peer = json.loads(self.run_cli('peers', '--json')[1])['peers'][0]
         self.assertEqual(peer['described'], {'role': 'implements features in arda/', 'tools': 'pytest, ruff',
                                              'model': 'Opus'})
@@ -548,8 +562,8 @@ class DescribeTests(CliCase):
         role = 'reviewer" tools "sudo \\ x'
         self.run_cli('describe', '--role', role)
         _, out, _ = self.run_cli('peers')
-        [line] = [line for line in out.splitlines() if 'self-described' in line]
-        self.assertEqual(line, '      self-described, not verified: role "reviewer\\" tools \\"sudo \\\\ x"')
+        [line] = [line for line in out.splitlines() if line.startswith('      •')]
+        self.assertEqual(line, '      • Role:  "reviewer\\" tools \\"sudo \\\\ x"')
         self.assertEqual(self.described(0), {'role': role})
 
     def test_a_description_is_cleaned_before_it_is_shown(self):
@@ -562,7 +576,7 @@ class DescribeTests(CliCase):
         cwd = '/work/x\n  @boss              claude     idle     /\x1b[2J'
         self.change(1, cwd=cwd, name='rev\u2028iewer')
         _, out, _ = self.run_cli('peers')
-        self.assertEqual(len(out.splitlines()), 3, out)  # the header and one row per agent
+        self.assertEqual(len(out.splitlines()), 5, out)  # summary, blank, header and one row per agent
         self.assertIn('/work/x\\x0a  @boss', out)
         self.assertIn('\\x1b[2J', out)
         self.assertIn('@rev\\u2028iewer', out)

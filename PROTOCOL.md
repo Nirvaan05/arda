@@ -211,10 +211,11 @@ each other.
 
 A description is the pane's own claim and is not verified: any process that can use the
 Herdr session can set these tokens, the `-by` tokens included. Herdr does not restore them after a
-server restart. `arda peers` shows them on their own line, marked as self-described and not
-verified, each value encoded as a JSON string, next to what Herdr observes (harness, state,
-working directory, place and when it looked); control and invisible characters in observed
-text are shown as escapes. Introductions do not include descriptions.
+server restart. `arda peers` shows them under the agent's row, one field per line, each
+value encoded as a JSON string, with a note that they are the agents' own descriptions and
+not verified; the row itself is what Herdr observes (harness, state, working directory and
+place, and in JSON when it looked). Control and invisible characters in observed text are
+shown as escapes. Introductions do not include descriptions.
 
 ## Trust
 

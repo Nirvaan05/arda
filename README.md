@@ -197,14 +197,25 @@ in Herdr (`herdr machine add`), which Herdr reaches with `herdr --machine`.
 
 ```text
 $ arda peers
-main: Herdr session main on this machine (laptop) (you are here)
-  @implementer         claude     working  ~/src/app (you)
-      self-described: role "implements features in src/"  tools "pytest, ruff"
-desktop: saved machine desktop, Herdr session default
-  @reviewer            codex      idle     /home/me/src/app
-      self-described: role "reviews diffs for correctness and security"
-gpu: saved machine gpu, Herdr session default: unreachable (machine_unreachable: ...)
+2 agents in 2 places: 1 working, 1 idle; 1 place did not answer
+
+main · Herdr session on this machine (laptop) · you are here
+  ● @implementer  claude  working  ~/src/app  (you)
+      • Role:  "implements features in src/"
+      • Tools: "pytest, ruff"
+
+desktop · saved machine desktop, Herdr session default
+  ○ @reviewer     codex   idle     /home/me/src/app
+      • Role:  "reviews diffs for correctness and security"
+
+gpu · saved machine gpu, Herdr session default
+  ✗ unreachable: machine_unreachable: ...
+
+Role, tools, model: each agent's own description (arda describe), not verified.
 ```
+
+Each agent's row starts with its state: ● working, ○ idle or done, ! waiting for its user
+(blocked), ? unknown.
 
 - **Peers say what they do.** An agent describes itself once with
   `arda describe --role '…' --tools '…' --model '…'`. Herdr keeps the description as
@@ -302,14 +313,16 @@ Claude Code and Codex are tested. Herdr types prompts only into agent kinds it s
   installed (`herdr integration`). Otherwise start the agents again; replies to messages
   sent before the restart are refused, because the sender's terminal is gone.
 - **Skills.** For agents to know ARDA in every new session, install the skill in
-  [skills/arda](skills/arda/SKILL.md): copy it into `$CLAUDE_CONFIG_DIR/skills/` (or a
-  project's `.claude/skills/`) for Claude Code and into `~/.agents/skills/` (or a project's
-  `.agents/skills/`) for Codex. Two more add commands to Claude Code that only you can
-  invoke: [skills/arda-peers](skills/arda-peers/SKILL.md) adds `/arda-peers`, which lists
-  the agents ARDA can reach (Claude Code's own `/list-agents` shows only Claude Code
-  sessions), and [skills/arda-setup](skills/arda-setup/SKILL.md) adds `/arda-setup`, which
-  shows the setup and the command to run. The Herdr action **ARDA: show setup** does the
-  same in Herdr.
+  [skills/arda](skills/arda/SKILL.md): copy or link it into `$CLAUDE_CONFIG_DIR/skills/`
+  (or a project's `.claude/skills/`) for Claude Code, and into `~/.agents/skills/` (or a
+  project's `.agents/skills/`) for Codex; Codex also reads `$CODEX_HOME/skills/`, which
+  keeps it to one Codex profile. Two more skills are for you to invoke, not agents:
+  [skills/arda-peers](skills/arda-peers/SKILL.md) lists the agents ARDA can reach, and
+  [skills/arda-setup](skills/arda-setup/SKILL.md) shows the setup and the command to run.
+  In Claude Code they are `/arda-peers` and `/arda-setup` (Claude Code's own `/list-agents`
+  shows only Claude Code sessions). Codex has no custom slash commands: mention them as
+  `$arda-peers` and `$arda-setup`, or pick them from `/skills`. The Herdr action
+  **ARDA: show setup** shows the setup in Herdr.
 - **Why approval happens in a plain terminal.** Herdr and the agent harnesses offer no way
   to tell your keystroke or click in an agent's pane from the agent's own, so anything that
   approves from inside an agent's pane could be triggered by an agent. The shortcuts above

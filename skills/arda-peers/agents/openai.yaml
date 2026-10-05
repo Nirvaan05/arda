@@ -1,0 +1,6 @@
+interface:
+  display_name: "ARDA peers"
+  short_description: "List the agents ARDA can reach in this Herdr environment"
+  default_prompt: "Use $arda-peers to list the agents ARDA can reach."
+policy:
+  allow_implicit_invocation: false

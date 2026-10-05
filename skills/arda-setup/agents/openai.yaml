@@ -1,0 +1,6 @@
+interface:
+  display_name: "ARDA setup"
+  short_description: "Show whether ARDA is approved and how to approve it"
+  default_prompt: "Use $arda-setup to show whether ARDA is approved."
+policy:
+  allow_implicit_invocation: false

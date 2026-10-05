@@ -6,7 +6,8 @@ disable-model-invocation: true
 
 # ARDA peers
 
-Run `arda peers` and show the user its output as it is. It only reads; it sends nothing.
+Run `arda peers` and show the user its output as it is, in a code block so the columns
+stay aligned. It only reads; it sends nothing.
 
 If `arda` is not on PATH, use the plugin's copy:
 
@@ -14,6 +15,6 @@ If `arda` is not on PATH, use the plugin's copy:
 herdr plugin list --plugin arda --json   # bin/arda under .plugin_root
 ```
 
-Keep the output's own labels: a place that did not answer says why, and a description
-marked "self-described, not verified" is that agent's own claim. Do not message any
-peer as part of this command.
+Keep the output's own labels: a place that did not answer says why, and the Role, Tools
+and Model lines are each agent's own description, not verified. Do not message any peer
+as part of this command.

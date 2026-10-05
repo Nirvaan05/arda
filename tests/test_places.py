@@ -43,7 +43,10 @@ class PlacesTests(CliCase):
                          [('@claude', 'main', True), ('@helper', 'main', False), ('@tester', 'other', False),
                           ('@codex', 'desktop', False)])
         text = self.run_cli('peers')[1]
-        self.assertIn('gpu: saved machine gpu, Herdr session default: unreachable', text)
+        self.assertIn('\ngpu · saved machine gpu, Herdr session default\n  ✗ unreachable: machine_unreachable', text)
+        self.assertTrue(text.startswith('4 agents in 3 places: 4 idle; 1 place did not answer\n'), text)
+        self.assertIn('\nmain · Herdr session on this machine (', text)
+        self.assertIn(') · you are here\n  ○ @claude  ', text)
 
     def test_a_unique_name_is_found_wherever_it_runs(self):
         code, out, _ = self.run_cli('task', '@codex', '--json', '--', 'review it')
@@ -111,11 +114,11 @@ class PlacesTests(CliCase):
                                                      '(publickey).'}},
             'p1': {'label': 'old', 'error': 'protocol_mismatch'}})
         text = self.run_cli('peers')[1]
-        self.assertIn('stopped: saved machine stopped, Herdr session default: unreachable (server_not_running: '
+        self.assertIn('stopped · saved machine stopped, Herdr session default\n  ✗ unreachable: server_not_running: '
                       'saved machine stopped is reachable, but its Herdr session is not running', text)
-        self.assertIn('(machine_auth: saved machine locked refused the SSH login; run `herdr machine reconnect '
-                      'locked`', text)
-        self.assertIn('old: saved machine old, Herdr session default: unreachable (protocol_mismatch', text)
+        self.assertIn('unreachable: machine_auth: saved machine locked refused the SSH login; run `herdr machine '
+                      'reconnect locked`', text)
+        self.assertIn('old · saved machine old, Herdr session default\n  ✗ unreachable: protocol_mismatch', text)
 
     def test_a_connection_lost_during_a_prompt_is_uncertain_and_a_refused_login_sent_nothing(self):
         lost = 'remote SSH connection failed: Connection to d1 closed by remote host.'
