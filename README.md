@@ -167,7 +167,7 @@ ARDA is a convenience layer, not a security boundary.
 | `arda whoami` | Your own address, pane, session and machine. |
 | `arda peers` | Active agents in every reachable Herdr session and machine, with what each says it does. |
 | `arda describe --role '…' --tools '…' --model '…'` | Tell peers what you do, which tools you use and which model you run. Without options, show it. |
-| `arda send @name -- 'text'` | Send a note. |
+| `arda send @name -- 'text'` | Send a note. Add `--re <id>` for a note about a task: a question, an answer or a change of plan. |
 | `arda task @name -- 'text'` | Hand over a task. Expect `ack`, then `result` or `reject`. |
 | `arda ack @name <id>` | Accept a task you received. |
 | `arda result @name <id> -- 'text'` | Return the outcome of a task. |
@@ -188,7 +188,8 @@ commands also show their result as a Herdr notification.
 ARDA is a thin Herdr plugin, not a second runtime. Herdr provides discovery, agent state,
 machines, routing, delivery and lifecycle. ARDA defines the addresses and messages and
 asks Herdr every time; it keeps no list of its own, and agents keep their own context and
-memory. The message format and delivery rules are in [PROTOCOL.md](PROTOCOL.md).
+memory. The message format, delivery rules and conventions for handing over work are in
+[PROTOCOL.md](PROTOCOL.md).
 
 **One environment: sessions and machines.** ARDA's scope is the Herdr environment of the
 machine it runs on: every running Herdr session on the machine, plus every machine saved

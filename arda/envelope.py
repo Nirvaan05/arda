@@ -223,8 +223,9 @@ def _footer(message, cmd):
              'user lets you work with peers. Either way answer through ARDA, since the sender cannot see your chat:'),
             f"  accept it now:  {cmd} ack {sender} {message.id} -- '<what you will deliver, how you will check it>'",
             f"  to ask a question first:  {cmd} send {sender} --re {message.id} -- '<question>'",
-            f"  when finished:  {cmd} result {sender} {message.id} -- '<result>'   (long or quoted text: --file PATH)",
-            f"  if you will not or cannot do it:  {cmd} reject {sender} {message.id} -- '<reason>'",
+            (f"  when finished:  {cmd} result {sender} {message.id} -- '<what you did, how you checked it, where it "
+             "is>'   (long or quoted text: --file PATH)"),
+            f"  if you will not or cannot do it:  {cmd} reject {sender} {message.id} -- '<will not or could not, why>'",
         ]
     if message.type == 'note' and sender == SYSTEM:
         return ['From ARDA itself. No reply needed.']
@@ -234,9 +235,11 @@ def _footer(message, cmd):
     if message.type == 'note':
         return [f"Note for you ({me}) from {sender}. No reply needed. To answer: {cmd} send {sender} -- '<text>'"]
     if message.type == 'ack':
-        return [f'{sender} accepted task {ref}. Its result will arrive as another ARDA message. No reply needed.']
+        return [(f'{sender} accepted task {ref}. Its result will arrive as another ARDA message. No reply needed; '
+                 f"to add or change something: {cmd} send {sender} --re {ref} -- '<text>'")]
     if message.type == 'result':
-        return [f'{sender} finished task {ref}. No reply needed.']
+        return [(f'{sender} finished task {ref}. Check it against what you asked. No reply needed; to follow up, '
+                 f"hand over a new task: {cmd} task {sender} -- '<text>'")]
     return [f'{sender} will not complete task {ref}. No reply needed.']
 
 

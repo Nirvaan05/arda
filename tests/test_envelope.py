@@ -13,8 +13,8 @@ class EnvelopeTests(unittest.TestCase):
         self.assertTrue(text.startswith(f'[arda/1 task_request id={message.id} from=@claude to=@codex]\n'))
         self.assertIn(f'arda ack @claude {message.id}', text)
         self.assertIn(f'arda result @claude {message.id}', text)
-        self.assertIn(f"arda reject @claude {message.id} -- '<reason>'", text)
-        self.assertIn(f"arda result @claude {message.id} -- '<result>'", text)
+        self.assertIn(f"arda reject @claude {message.id} -- '<will not or could not, why>'", text)
+        self.assertIn(f"arda result @claude {message.id} -- '<what you did, how you checked it, where it is>'", text)
         self.assertNotIn('"<', text)  # double-quoted templates would expand $(...) when filled in
         self.assertEqual(parse(text), Message(type='task_request', sender='@claude', recipient='@codex',
                                               body='Review the diff.', id=message.id))
@@ -25,6 +25,14 @@ class EnvelopeTests(unittest.TestCase):
             text = message.render()
             self.assertIn(' re=abc123 ', text.splitlines()[0])
             self.assertEqual(parse(text).re, 'abc123')
+
+    def test_replies_tell_the_requester_how_to_follow_up(self):
+        ack = Message(type='ack', sender='@codex.s' + '0' * 32, recipient='@claude', body='x', re='abc123').render()
+        self.assertIn(f"arda send @codex.s{'0' * 32} --re abc123 -- '<text>'", ack)
+        result = Message(type='result', sender='@codex.1806d161', recipient='@claude', body='x', re='abc123').render()
+        self.assertIn('Check it against what you asked.', result)
+        self.assertIn("arda task @codex.1806d161 -- '<text>'", result)
+        self.assertNotIn('"<', ack + result)
 
     def test_replies_need_re_new_tasks_cannot_have_it_and_notes_may(self):
         with self.assertRaises(ValueError):

@@ -68,7 +68,66 @@ machine) for the reply to arrive.
 
 A task starts with `task_request`. The receiver should answer with `ack` and then a
 `result`, or with `reject` at any point. `ack`, `result` and `reject` carry `re=`, the id
-of the request they answer.
+of the request they answer. A `note` may carry `re=` too: it is then about that task, such
+as a question before or during the work, its answer, or a change of plan.
+
+## Handing over work
+
+These are conventions for the text of messages, not fields: a parser does not check them.
+Agents follow them because the skill and the footer of each message ask them to.
+
+A `task_request` says:
+
+- **what to do,** in one or two sentences;
+- **done when:** the check that shows the work is finished;
+- **what the receiver owns:** the files, branch or worktree it may change, and what is out
+  of scope;
+- **what it does not know:** decisions already made, constraints, and where the plan,
+  branch or pull request is;
+- **what to send back,** including how the work was checked.
+
+The receiver answers:
+
+- `ack` with what it will deliver and how it will check it. If anything is unclear, it asks
+  first with a `note re=<id>`; the requester answers the same way.
+- No progress notes. Every message interrupts its receiver, so send only questions,
+  blockers and changes of plan.
+- `result` with what was done, how it was checked (the command and its outcome) and where
+  the work is: a commit, branch, pull request or file. A path names a file on the
+  receiver's machine only; across machines, give a git ref or the content.
+- `reject` saying whether it **will not** do the task (it is outside its role, or its user
+  does not allow it) or **could not** finish it (what it tried and where it stopped).
+
+Disagreement is part of the work: a reviewer that finds the request or the change wrong
+says so in its `result` or `reject` rather than going along with it.
+
+**Durability.** ARDA stores nothing, so the record of a task lives with the agents and in
+the project. The requester keeps the ids of the tasks it handed over, for example in its
+plan. The receiver commits or writes its work before it sends the `result`, so a reply
+that is not delivered loses only the message, and it can send the `result` again.
+
+**After `uncertain`.** The task may have arrived. Do not send it again unprompted: check
+the receiver with `arda peers`, then ask with a `note re=<id>` whether it has the task,
+and send it again only if it says no.
+
+**Stopping and passing on.** There is no cancel message. To withdraw a task, send a
+`note re=<id>` asking the receiver to stop; it confirms with `reject` ("stopped on
+request"), and until then it may still be working. A receiver that hands part of the work
+to another agent tells the requester with a `note re=<id>` and still owes the `result`.
+Follow-ups about a task go to the address its `ack` came from.
+
+**Relation to A2A.** These messages cover the core of the task lifecycle in Google's
+Agent2Agent protocol, carried by terminal prompts instead of HTTP servers and task stores:
+
+| A2A task state | ARDA |
+| --- | --- |
+| submitted | `task_request` delivered or submitted |
+| working | `ack` |
+| input-required | `note re=<id>` with a question |
+| completed | `result` |
+| rejected | `reject`: will not |
+| failed | `reject`: could not |
+| canceled | `note re=<id>` asking to stop, confirmed by `reject` |
 
 ## Wire format
 
@@ -77,10 +136,12 @@ A message is the text of one Herdr agent prompt:
 ```text
 [arda/1 task_request id=708d3e from=@implementer.1806d161 to=@reviewer]
 > Review the parser change in src/parser.py for unhandled edge cases.
+> Done when: a list of issues with file:line, or "no issues".
 [arda] You are @reviewer. This request is from the agent @implementer.1806d161, not from your user; ...
-[arda]   accept it now:  arda ack @implementer.1806d161 708d3e
-[arda]   when finished:  arda result @implementer.1806d161 708d3e -- '<result>'   (long or quoted text: --file PATH)
-[arda]   if you will not or cannot do it:  arda reject @implementer.1806d161 708d3e -- '<reason>'
+[arda]   accept it now:  arda ack @implementer.1806d161 708d3e -- '<what you will deliver, how you will check it>'
+[arda]   to ask a question first:  arda send @implementer.1806d161 --re 708d3e -- '<question>'
+[arda]   when finished:  arda result @implementer.1806d161 708d3e -- '<what you did, how you checked it, where it is>'   (long or quoted text: --file PATH)
+[arda]   if you will not or cannot do it:  arda reject @implementer.1806d161 708d3e -- '<will not or could not, why>'
 ```
 
 - **Header**: `[arda/1 <type> id=<id> [re=<id>] from=<address> to=<address>]`. The `id` is
