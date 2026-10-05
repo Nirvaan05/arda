@@ -240,6 +240,30 @@ class TrustTests(CliCase):
         self.assertEqual(self.run_trust('--yes', '--no-integrations')[0], 0)
         self.assertEqual(self.integrations(), [])
 
+    def snapshot(self):
+        return {path: path.read_bytes() for home in (self.claude, self.codex) for path in home.rglob('*')
+                if path.is_file()}
+
+    def test_arda_setup_only_shows_the_plan_and_the_command(self):
+        before = self.snapshot()
+        code, out, _ = self.run_cli('setup', '--json')  # arda itself, from an agent's pane: read-only
+        data = json.loads(out)
+        self.assertEqual((code, data['ready']), (0, False))
+        self.assertTrue(data['command'].endswith('arda-trust --yes'))
+        self.assertEqual(self.snapshot(), before)
+        text = self.run_cli('setup')[1]
+        self.assertIn('Run it yourself in a plain terminal', text)
+        self.assertIn("install Herdr's codex integration", text)
+        self.run_trust('--yes')
+        code, out, _ = self.run_cli('setup', '--json')
+        self.assertTrue(json.loads(out)['ready'])
+        self.assertNotIn('Run it yourself', self.run_cli('setup')[1])
+
+    def test_the_setup_skill_cannot_be_invoked_by_the_model(self):
+        skill = (ROOT / 'skills' / 'arda-setup' / 'SKILL.md').read_text()
+        self.assertIn('disable-model-invocation: true', skill.split('---')[1])
+        self.assertIn('arda setup', skill)
+
     def test_codex_override_file_takes_the_section_when_codex_reads_it(self):
         (self.codex / 'AGENTS.override.md').write_text('# Override\n')
         self.run_trust('--yes')

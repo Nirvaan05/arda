@@ -338,6 +338,31 @@ def cmd_status(herdr, args):
             f'ARDA {__version__}, protocol {PROTOCOL}')
 
 
+def cmd_setup(herdr, args):
+    """Show what approving ARDA would change and how to do it. Read-only: arda never changes trust.
+
+    The change itself is made by arda-trust, which the user runs in a plain terminal: Herdr and the
+    agent harnesses offer no way to tell a user's click or keystroke in an agent's pane from an
+    agent's own, so no in-pane shortcut can be shown to be the user's.
+    """
+    script = ROOT / 'bin' / 'arda'
+    installed = trust.status(script)
+    integrations = trust.integrations(herdr.binary if herdr else None)
+    ready = all(line.endswith((': installed', ': allowed')) for line in installed)
+    command = shlex.quote(str(script.with_name('arda-trust')))
+    plan = trust.describe(script, revoke=False) + [
+        f'{name}: install Herdr\'s {name} integration (herdr integration install {name})'
+        for name in trust.harnesses()]
+    lines = [f'ARDA approval: {"installed and current" if ready else "not installed or not current"}',
+             *[f'  {line}' for line in installed + integrations]]
+    if not ready:
+        lines += ['', f'{command} --yes would:', *[f'  {line}' for line in plan], '',
+                  f'Run it yourself in a plain terminal, or a plain shell pane in Herdr: {command} --yes',
+                  'Agents cannot run it for you, and running it inside an agent\'s own pane is refused.']
+    return {'status': 'none', 'ready': ready, 'trust': installed, 'integrations': integrations,
+            'command': f'{command} --yes'}, '\n'.join(lines)
+
+
 def cmd_whoami(herdr, args):
     me = require_identity(herdr)
     here = discover(herdr)[0]
@@ -652,6 +677,7 @@ def parsers():
         sub.add_argument('--file', help='read the message text from this file instead')
 
     command('status', 'show the plugin and protocol version', [common])
+    command('setup', 'show whether ARDA is approved and how to approve it (read-only)', [common])
     command('whoami', 'show your own ARDA address and where you run', [common])
     command('peers', 'list the active agents in every Herdr session and saved machine you can reach', [common])
     sub = command('send', 'send a note to another agent', [sending])
@@ -695,7 +721,7 @@ def parse_args(argv=None):
 
 
 HANDLERS = {
-    'status': cmd_status, 'whoami': cmd_whoami, 'peers': cmd_peers, 'send': cmd_send,
+    'status': cmd_status, 'setup': cmd_setup, 'whoami': cmd_whoami, 'peers': cmd_peers, 'send': cmd_send,
     'task': cmd_task, 'ack': cmd_ack, 'result': cmd_result, 'reject': cmd_reject,
     'introduce': cmd_introduce, 'trust': cmd_trust_moved,
 }

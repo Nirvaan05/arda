@@ -385,6 +385,12 @@ class CliTests(CliCase):
         self.run_cli('introduce', '@claude', 'w1:p1')
         self.assertEqual(len(self.prompts()), 1)
 
+    def test_the_setup_action_reports_through_a_notification(self):
+        code, _, _ = self.run_cli('setup', env={'HERDR_PLUGIN_ID': 'arda'})
+        self.assertEqual(code, 0)
+        notifications = json.loads(self.state_path.read_text())['notifications']
+        self.assertTrue(notifications[-1][2].startswith('ARDA approval: '))
+
     def test_plugin_actions_report_through_a_notification(self):
         code, _, _ = self.run_cli('status', env={'HERDR_PLUGIN_ID': 'arda'})
         self.assertEqual(code, 0)

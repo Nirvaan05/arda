@@ -96,8 +96,9 @@ root=$(herdr plugin list --plugin arda --json |
   python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["plugins"][0]["plugin_root"])')
 ln -s "$root/bin/arda" "$root/bin/arda-trust" ~/.local/bin/
 
-# 2. Approve ARDA peer messages once, yourself (in Claude Code: `! arda-trust --yes`).
-#    This also installs Herdr's Claude Code and Codex integrations for native identity.
+# 2. Approve ARDA peer messages once, yourself, in a plain terminal or a plain shell pane in
+#    Herdr (not inside an agent's pane). This also installs Herdr's Claude Code and Codex
+#    integrations for native identity. `arda setup` shows what is approved and what is not.
 arda-trust          # shows what it would change
 arda-trust --yes    # applies it
 
@@ -171,6 +172,7 @@ ARDA is a convenience layer, not a security boundary.
 | `arda result @name <id> -- 'text'` | Return the outcome of a task. |
 | `arda reject @name <id> -- 'reason'` | Decline a task, or report that it failed. |
 | `arda introduce [@name ...]` | Introduce ARDA to agents. Busy agents are skipped. |
+| `arda setup` | Show whether ARDA is approved, what approving would change, and the command to run (read-only). |
 | `arda-trust` | Approve ARDA peer messages once; a separate command you run yourself (see above). |
 | `arda status` | Plugin and protocol version. |
 
@@ -287,10 +289,16 @@ Claude Code and Codex are tested. Herdr types prompts only into agent kinds it s
   and restores their names only when Herdr's official integration for that agent is
   installed (`herdr integration`). Otherwise start the agents again; replies to messages
   sent before the restart are refused, because the sender's terminal is gone.
-- **Skill.** For agents to know ARDA in every new session, install the skill in
+- **Skills.** For agents to know ARDA in every new session, install the skill in
   [skills/arda](skills/arda/SKILL.md): copy it into `$CLAUDE_CONFIG_DIR/skills/` (or a
   project's `.claude/skills/`) for Claude Code and into `~/.agents/skills/` (or a project's
-  `.agents/skills/`) for Codex.
+  `.agents/skills/`) for Codex. [skills/arda-setup](skills/arda-setup/SKILL.md) adds a
+  `/arda-setup` command to Claude Code that only you can invoke; it shows the setup and the
+  command to run. The Herdr action **ARDA: show setup** does the same in Herdr.
+- **Why approval happens in a plain terminal.** Herdr and the agent harnesses offer no way
+  to tell your keystroke or click in an agent's pane from the agent's own, so anything that
+  approves from inside an agent's pane could be triggered by an agent. The shortcuts above
+  therefore only show the setup; `arda-trust` makes the change.
 
 ## Limits
 
