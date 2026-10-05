@@ -87,7 +87,9 @@ class CliTests(CliCase):
                         agent('tester', 'w1:p3'), agent('pi', 'w1:p4', status='unknown'))
         lines = self.run_cli('peers')[1].splitlines()
         self.assertEqual(lines[0], '4 agents in 1 place: 1 working, 1 blocked, 1 idle, 1 unknown')
-        self.assertEqual([line[:3] for line in lines[3:]], ['  ●', '  !', '  ○', '  ?'])
+        self.assertEqual([line[:3] for line in lines[3:7]], ['  ●', '  !', '  ○', '  ?'])
+        self.assertEqual(lines[7:], ['', ('No description yet: @claude, @codex, @tester, @pi (agents add one '
+                                          'with arda describe).')])
 
     def test_task_to_idle_agent_is_delivered_with_activity_confirmation(self):
         code, out, _ = self.run_cli('task', '@codex', 'Review the diff.', '--json')
@@ -465,8 +467,8 @@ class DescribeTests(CliCase):
                       '\n      • Model: "Opus"'
                       '\n  ○ @reviewer  codex   idle  /work/app\n', out)
         self.assertTrue(out.startswith('2 agents in 1 place: 2 idle\n'))
-        self.assertTrue(out.endswith("\nRole, tools, model: each agent's own description (arda describe), "
-                                     'not verified.\n'))
+        self.assertTrue(out.endswith("\nRole, tools, model: each agent's own claim (arda describe), not verified."
+                                     '\nNo description yet: @reviewer.\n'), out)
         self.assertTrue(all(len(line) <= 80 for line in out.splitlines()), out)
         peer = json.loads(self.run_cli('peers', '--json')[1])['peers'][0]
         self.assertEqual(peer['described'], {'role': 'implements features in arda/', 'tools': 'pytest, ruff',
@@ -576,7 +578,7 @@ class DescribeTests(CliCase):
         cwd = '/work/x\n  @boss              claude     idle     /\x1b[2J'
         self.change(1, cwd=cwd, name='rev\u2028iewer')
         _, out, _ = self.run_cli('peers')
-        self.assertEqual(len(out.splitlines()), 5, out)  # summary, blank, header and one row per agent
+        self.assertEqual(len(out.split('\n\n')[1].splitlines()), 3, out)  # the header and one row per agent
         self.assertIn('/work/x\\x0a  @boss', out)
         self.assertIn('\\x1b[2J', out)
         self.assertIn('@rev\\u2028iewer', out)

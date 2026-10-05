@@ -422,7 +422,7 @@ def cmd_peers(herdr, args):
 
 # How `arda peers` marks an agent's state, as Codex marks its agents: ● busy, ○ ready, ! needs someone.
 STATE_MARK = {'working': '●', 'blocked': '!', 'idle': '○', 'done': '○'}
-NOTE = "Role, tools, model: each agent's own description (arda describe), not verified."
+NOTE = "Role, tools, model: each agent's own claim (arda describe), not verified."
 
 
 def listing(places, peers):
@@ -469,7 +469,12 @@ def listing(places, peers):
                                 f'{json.dumps(peer["described"][field], ensure_ascii=False)}')
         if not here:
             rows.append('  no agents')
-    return rows + (['', NOTE] if claimed else [])
+    notes = [NOTE] if claimed else []
+    silent = [shown(peer['address']) for peer in peers if not peer['described']]
+    if silent:
+        notes.append(f'No description yet: {", ".join(silent)}'
+                     + ('.' if claimed else ' (agents add one with arda describe).'))
+    return rows + ([''] + notes if notes else [])
 
 
 INTRODUCTION = """\

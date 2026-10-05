@@ -211,7 +211,7 @@ desktop · saved machine desktop, Herdr session default
 gpu · saved machine gpu, Herdr session default
   ✗ unreachable: machine_unreachable: ...
 
-Role, tools, model: each agent's own description (arda describe), not verified.
+Role, tools, model: each agent's own claim (arda describe), not verified.
 ```
 
 Each agent's row starts with its state: ● working, ○ idle or done, ! waiting for its user
