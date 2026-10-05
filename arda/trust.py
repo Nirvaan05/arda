@@ -281,6 +281,41 @@ def apply(script, revoke=False):
     return done
 
 
+def harnesses():
+    """The agent harnesses (Herdr integration names) that have a configuration directory here."""
+    return [name for name, home in (('claude', claude_home()), ('codex', codex_home())) if home.is_dir()]
+
+
+def integrations(herdr_binary, install=False):
+    """Herdr's own Claude Code and Codex integrations, which report each agent's native conversation.
+
+    ARDA uses that report as an agent's reply address. They belong to Herdr, so ARDA installs them
+    with `herdr integration install` on request and never removes them.
+    """
+    lines = []
+    for name in harnesses():
+        args = ['integration', 'install', name] if install else ['integration', 'status']
+        try:
+            proc = subprocess.run([herdr_binary or 'herdr', *args], capture_output=True, text=True, timeout=60,
+                                  check=False)
+        except (OSError, subprocess.TimeoutExpired) as err:
+            lines.append(f'{name}: could not run herdr integration ({err})')
+            continue
+        output = (proc.stdout or proc.stderr).strip()
+        if not install:
+            output = next((line for line in output.splitlines() if line.startswith(f'{name}:')), output)
+            lines.append(f'{name} integration: {output.split(":", 1)[-1].strip()}' if output else
+                         f'{name} integration: unknown')
+        elif proc.returncode == 0:
+            lines.append(f'installed Herdr\'s {name} integration (native conversation identity)')
+            if name == 'codex':
+                lines.append('Codex asks once to review this hook the next time it starts a session: approve it '
+                             'in the Codex pane (its Hooks dialog), or native identity stays off for Codex.')
+        else:
+            lines.append(f'could not install Herdr\'s {name} integration: {output[:200]}')
+    return lines
+
+
 def _owned(text, content):
     """Whether a file is one ARDA wrote: it starts with ARDA's header and says so."""
     return (text.split('\n', 1)[0].strip() == content.split('\n', 1)[0].strip()

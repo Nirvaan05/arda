@@ -563,18 +563,27 @@ def cmd_trust_moved(herdr, args):
 def grant_trust(herdr, args):
     """Record, show or revoke the user's approval of ARDA peer communication (arda-trust)."""
     script = ROOT / 'bin' / 'arda'
+    with_integrations = not args.revoke and not getattr(args, 'no_integrations', False)
     if args.status:
-        lines = trust.status(script)
+        lines = trust.status(script) + trust.integrations(herdr.binary)
         return {'status': 'none', 'trust': lines}, '\n'.join(lines)
     refuse_agents(herdr)
     if not args.yes:
         lines = trust.describe(script, args.revoke)
+        if with_integrations:
+            lines += [f'{name}: install Herdr\'s {name} integration (herdr integration install {name})'
+                      for name in trust.harnesses()]
         intro = 'arda-trust --revoke --yes would:' if args.revoke else 'arda-trust --yes would:'
         text = '\n'.join([intro, *lines, 'Nothing was changed.'] if lines else ['nothing to do'])
         return {'status': 'none', 'plan': lines}, text
     done = trust.apply(script, revoke=args.revoke)
+    if with_integrations:
+        done += trust.integrations(herdr.binary, install=True)
     note = ('Start new agent sessions (or /clear in Claude Code) for this to take effect.' if done
             else 'Nothing needed changing.')
+    if args.revoke:
+        note += (' Herdr\'s Claude Code and Codex integrations stay installed; remove them with '
+                 '`herdr integration uninstall claude` / `codex` if you want.')
     return {'status': 'none', 'changed': done}, '\n'.join([*done, note])
 
 
@@ -742,6 +751,8 @@ def trust_main(argv=None):
     parser.add_argument('--yes', action='store_true', help='apply the change; without it, only show what it would do')
     parser.add_argument('--revoke', action='store_true', help='remove what arda-trust added')
     parser.add_argument('--status', action='store_true', help='show whether trust is installed and current')
+    parser.add_argument('--no-integrations', action='store_true',
+                        help="do not install Herdr's Claude Code and Codex integrations (native identity)")
     parser.add_argument('--json', action='store_true', help='print machine-readable JSON')
     parser.add_argument('--version', action='version', version=f'arda-trust {__version__}')
     args = parser.parse_args(argv)

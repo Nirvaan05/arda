@@ -210,6 +210,26 @@ class TrustTests(CliCase):
         self.assertEqual(self.run_trust('--revoke', '--yes')[0], 0)
         self.assertNotIn('arda-trust', agents.read_text() + override.read_text())
 
+    def integrations(self):
+        return json.loads(self.state_path.read_text()).get('integrations', [])
+
+    def test_granting_also_installs_herdrs_integrations_and_revoke_keeps_them(self):
+        code, out, _ = self.run_trust()
+        self.assertIn('install Herdr\'s codex integration (herdr integration install codex)', out)
+        self.assertEqual(self.integrations(), [])  # a plan changes nothing
+        code, out, _ = self.run_trust('--yes')
+        self.assertEqual(code, 0)
+        self.assertEqual(sorted(self.integrations()), ['claude', 'codex'])
+        self.assertIn('Codex asks once to review this hook', out)
+        self.assertIn('codex integration: current', self.run_trust('--status')[1])
+        code, out, _ = self.run_trust('--revoke', '--yes')
+        self.assertEqual(sorted(self.integrations()), ['claude', 'codex'])  # Herdr's, left installed
+        self.assertIn('herdr integration uninstall', out)
+
+    def test_integrations_can_be_left_out(self):
+        self.assertEqual(self.run_trust('--yes', '--no-integrations')[0], 0)
+        self.assertEqual(self.integrations(), [])
+
     def test_codex_override_file_takes_the_section_when_codex_reads_it(self):
         (self.codex / 'AGENTS.override.md').write_text('# Override\n')
         self.run_trust('--yes')

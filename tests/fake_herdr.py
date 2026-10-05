@@ -115,6 +115,16 @@ def main(argv):
         # By default the caller (the test process running arda) is the pane's shell.
         reply({'type': 'pane_process_info',
                'process_info': {'pane_id': argv[3], 'shell_pid': state.get('shell_pid', os.getppid())}})
+    if argv[:2] == ['integration', 'install']:
+        state.setdefault('integrations', []).append(argv[2])
+        save(path, state)
+        print(f'installed {argv[2]} integration hook')
+        sys.exit(0)
+    if argv[:2] == ['integration', 'status']:
+        installed = state.get('integrations', [])
+        print('\n'.join(f'{name}: {"current (v1)" if name in installed else "not installed"} (/fake/{name})'
+                        for name in ('claude', 'codex')))
+        sys.exit(0)
     if argv[:2] == ['notification', 'show']:
         state.setdefault('notifications', []).append(argv[2:])
         save(path, state)

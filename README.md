@@ -49,7 +49,8 @@ root=$(herdr plugin list --plugin arda --json |
   python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["plugins"][0]["plugin_root"])')
 ln -s "$root/bin/arda" "$root/bin/arda-trust" ~/.local/bin/
 
-# 2. Approve ARDA peer messages once. Run this yourself, not through an agent.
+# 2. Approve ARDA peer messages once, yourself (in Claude Code: `! arda-trust --yes`).
+#    This also installs Herdr's Claude Code and Codex integrations for native identity.
 arda-trust          # shows what it would change
 arda-trust --yes    # applies it
 
@@ -75,6 +76,7 @@ the link survives updates.
 | `$CLAUDE_CONFIG_DIR/settings.json` | `permissions.allow`: `Bash(arda *)`; `permissions.deny`: `Bash(arda-trust)` and `Bash(arda-trust *)`; each also for the full path of the script | `arda-trust --revoke --yes` |
 | `$CODEX_HOME/AGENTS.md` | A marked section with the same rules for Codex | `arda-trust --revoke --yes` |
 | `$CODEX_HOME/rules/arda.rules` | Lets the `arda` command, and nothing else, run outside Codex's sandbox; forbids `arda-trust` | `arda-trust --revoke --yes` |
+| Herdr's Claude Code and Codex integrations | `herdr integration install claude` / `codex`: a `SessionStart` hook that reports each agent's conversation to Herdr (Codex also gets `[features] hooks = true`). Skip with `--no-integrations` | `herdr integration uninstall claude` / `codex` (revoke leaves them, they are Herdr's) |
 
 Nothing else is changed. ARDA runs no service and keeps no files of its own.
 `arda-trust --status` shows what is installed and whether it is current, including rules an older
@@ -228,10 +230,11 @@ Claude Code and Codex are tested. Herdr types prompts only into agent kinds it s
   send and says so. Start Codex with `--no-daemon`.
 - **Codex: sandbox.** Codex's workspace sandbox blocks the Herdr socket. `arda-trust`
   allows the `arda` command; otherwise approve it when Codex asks.
-- **Native identity.** `herdr integration install claude` and `codex` make Herdr report each
-  agent's conversation, which ARDA uses as its reply address. Codex asks you once to review
-  and trust the new hook (a hooks dialog in its pane); until you do, Herdr does not see that
-  dialog as blocked, and a message typed into it is lost.
+- **Native identity.** Herdr's Claude Code and Codex integrations, which `arda-trust --yes`
+  installs, make Herdr report each agent's conversation, which ARDA uses as its reply
+  address. Codex asks you once to review and trust the new hook (a Hooks dialog in its pane);
+  until you do, Herdr does not see that dialog as blocked, and a message typed into it is
+  lost.
 - **Restarts.** Herdr restores the pane layout after a server restart. It relaunches agents
   and restores their names only when Herdr's official integration for that agent is
   installed (`herdr integration`). Otherwise start the agents again; replies to messages
