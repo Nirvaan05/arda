@@ -136,22 +136,21 @@ def outcome(message, status, detail, place=None, pane=None):
             'to': to, 'place': place.name if place else None, 'pane_id': pane, 'detail': detail}
 
 
-def deliver(place, route, message, force=False, skip_busy=False, fp=None, agent=None):
+def deliver(place, route, message, force=False, skip_busy=False, fp=None):
     """Hand a message to the Herdr server of `place` and report what is actually known about delivery.
 
-    `agent` is the receiver as the place's listing showed it; it is used instead of
-    asking Herdr again while that listing is fresh.
+    The receiver is read again right before typing, never taken from an earlier listing: its
+    state decides whether to type at all and how the outcome is reported.
     """
     herdr = place.herdr
     to = message.recipient if place.current else f'{message.recipient}@{place.name}'
-    if agent is None or not place.fresh:
-        try:
-            agent = herdr.agent(route)
-        except HerdrError as err:
-            if err.code == 'agent_not_found':
-                return outcome(message, 'not_delivered', f'no live agent {to} in this Herdr environment', place)
-            return outcome(message, 'not_delivered', f'nothing was sent: {place.name} did not answer '
-                                                     f'({err.code}: {err.message})', place)
+    try:
+        agent = herdr.agent(route)
+    except HerdrError as err:
+        if err.code == 'agent_not_found':
+            return outcome(message, 'not_delivered', f'no live agent {to} in this Herdr environment', place)
+        return outcome(message, 'not_delivered', f'nothing was sent: {place.name} did not answer '
+                                                 f'({err.code}: {err.message})', place)
     state, pane = agent.get('agent_status'), agent.get('pane_id')
     if fp and fingerprint(agent.get('terminal_id')) != fp:
         return outcome(message, 'not_delivered', f'the agent now called {to} is not the one this message is '
@@ -246,7 +245,7 @@ def send(herdr, args, kind, re=None):
     message = Message(type=kind, sender=me['address'], recipient=address(to.route), body=body, re=re)
     places = discover(herdr)
     try:
-        place, agent = resolve(to, places)
+        place, _ = resolve(to, places)
     except Unresolved as err:
         return outcome(message, 'not_delivered', str(err))
     if place.current and to.route in (me['name'], me['pane_id']):
@@ -255,7 +254,7 @@ def send(herdr, args, kind, re=None):
         raise UsageError('you have no Herdr agent name, and a pane ID means nothing in another place, so '
                          f'{place.name} could not reply; name this agent first (herdr agent rename '
                          f'{me["pane_id"]} <name>)')
-    result = deliver(place, to.route, message, force=getattr(args, 'force', False), fp=to.fingerprint, agent=agent)
+    result = deliver(place, to.route, message, force=getattr(args, 'force', False), fp=to.fingerprint)
     # A bare name was matched once among the places that answered; say which did not.
     unchecked = [p.name for p in places if not p.reachable] if to.name and not (to.place or to.fingerprint) else []
     if unchecked and result['status'] != 'not_delivered':
@@ -386,22 +385,18 @@ def cmd_introduce(herdr, args):
         for text in dict.fromkeys(args.to):
             to = parse_address(text)
             try:
-                place, agent = resolve(to, places)
+                place, _ = resolve(to, places)
             except Unresolved as err:
                 unresolved.append({'status': 'not_delivered', 'type': 'note', 'to': str(to), 'detail': str(err)})
                 lines.append(f'not_delivered: {to}: {err}')
                 continue
-            if (place.name, to.route) not in [(p.name, r) for p, r, _ in recipients]:
-                recipients.append((place, to.route, agent))
+            if (place.name, to.route) not in [(p.name, r) for p, r in recipients]:
+                recipients.append((place, to.route))
     else:
-        listed = {(place.name, agent.get('name')): (place, agent) for place in places for agent in place.agents}
-        recipients = []
-        for peer in named:
-            if not peer['you']:
-                place, agent = listed[peer['place'], peer['name']]
-                recipients.append((place, peer['name'], agent))
+        by_name = {place.name: place for place in places}
+        recipients = [(by_name[peer['place']], peer['name']) for peer in named if not peer['you']]
     notes = []
-    for place, name, agent in recipients:
+    for place, name in recipients:
         if place.current and me and name in (me['name'], me['pane_id']):
             continue
         others = [f'{peer["address"]} ({peer["agent"] or "?"} on {peer["machine"]})' for peer in named
@@ -409,17 +404,16 @@ def cmd_introduce(herdr, args):
         body = INTRODUCTION.format(me=address(name), peers=', '.join(others) or 'none yet',
                                    cmd=command() if place.kind == 'session' else 'arda')
         message = Message(type='note', sender=me['address'] if me else SYSTEM, recipient=address(name), body=body)
-        notes.append((place, name, agent, message))
+        notes.append((place, name, message))
 
     def introduce(note):
-        place, name, agent, message = note
+        place, name, message = note
         try:
-            return deliver(place, name, message, force=args.force, skip_busy=True, agent=agent)
+            return deliver(place, name, message, force=args.force, skip_busy=True)
         except HerdrError as err:  # raised before anything was typed for this recipient
             return outcome(message, 'not_delivered', f'herdr: {err.message}', place)
-    # Each delivery waits to see its receiver start, so deliver at once, while the listings
-    # that found the receivers are still fresh; but one at a time per saved machine, whose
-    # shared SSH connection allows only so many channels.
+    # Each delivery waits to see its receiver start, so deliver at once; but one at a time
+    # per saved machine, whose shared SSH connection allows only so many channels.
     batches = {}
     for index, note in enumerate(notes):
         batches.setdefault(note[0].name if note[0].kind == 'machine' else index, []).append(index)

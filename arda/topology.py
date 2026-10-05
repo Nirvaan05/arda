@@ -11,16 +11,11 @@ import hashlib
 import os
 import re
 import socket
-import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from .envelope import Address, fingerprint
 from .herdr import Herdr, HerdrError
-
-# How long an agent listing still describes an agent well enough to send to it without
-# asking Herdr again. Herdr refuses a blocked agent at prompt time either way.
-FRESH_FOR = 2.0
 
 
 @dataclass
@@ -34,16 +29,11 @@ class Place:
     agents: list = field(default_factory=list)
     error: str | None = None
     failure: HerdrError | None = None
-    listed_at: float | None = None
     alias_of: str | None = None   # another place that reaches the same Herdr server
 
     @property
     def reachable(self):
         return self.error is None
-
-    @property
-    def fresh(self):
-        return self.listed_at is not None and time.monotonic() - self.listed_at < FRESH_FOR
 
 
 def _label(text, taken, fallback):
@@ -124,7 +114,6 @@ def survey(places):
     def ask(place):
         try:
             place.agents = place.herdr.agents()
-            place.listed_at = time.monotonic()
         except HerdrError as err:
             place.agents, place.error, place.failure = [], f'{err.code}: {err.message}', err
     with ThreadPoolExecutor(max_workers=max(1, len(places))) as pool:

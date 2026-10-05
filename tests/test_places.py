@@ -89,14 +89,17 @@ class PlacesTests(CliCase):
         self.assertEqual(self.run_cli('result', '@claude.aaaa1111', 'abc123', '--', 'done')[0], 0)
         self.assertEqual([c for c in self.calls() if c[0] == '--machine'], [])
 
-    def test_a_listed_agent_is_prompted_without_asking_for_it_again(self):
-        self.assertEqual(self.run_cli('send', '@codex', '--', 'hi')[0], 0)
+    def test_the_receiver_is_read_again_right_before_typing(self):
+        # Listed idle, working by the time of delivery: the fresh read decides (Codex's race, D3).
+        busy = agent('codex', 'w1:p1', status='working', listed_status='idle')
+        self.environment(machines={'d1': {'label': 'desktop', 'agents': [busy]}})
+        code, out, _ = self.run_cli('send', '@codex', '--json', '--', 'hi')
+        self.assertEqual((code, json.loads(out)['status']), (0, 'submitted'))
         self.assertEqual([c[2:4] for c in self.calls() if c[:2] == ['--machine', 'd1']],
-                         [['agent', 'list'], ['agent', 'prompt']])
-        with mock.patch('arda.topology.FRESH_FOR', 0):
-            self.assertEqual(self.run_cli('send', '@codex', '--', 'hi')[0], 0)
-        self.assertEqual([c[2:4] for c in self.calls() if c[:2] == ['--machine', 'd1']][2:],
                          [['agent', 'list'], ['agent', 'get'], ['agent', 'prompt']])
+        prompts = len(self.prompts())
+        self.run_cli('introduce', '@codex', '--json')
+        self.assertEqual(len(self.prompts()), prompts)  # busy at delivery time: skipped, nothing typed
 
     def test_machine_failures_say_what_went_wrong(self):
         self.environment(machines={
@@ -130,7 +133,7 @@ class PlacesTests(CliCase):
                                           'refuse_once': ['agent list']}})
         self.assertEqual(self.run_cli('send', '@codex', '--', 'hi')[0], 0)
         self.assertEqual([c[2:4] for c in self.calls() if c[:2] == ['--machine', 'd1']],
-                         [['agent', 'list'], ['agent', 'list'], ['agent', 'prompt']])
+                         [['agent', 'list'], ['agent', 'list'], ['agent', 'get'], ['agent', 'prompt']])
         self.environment(machines={'d1': {'label': 'desktop', 'agents': [agent('codex', 'w1:p1')],
                                           'refuse_once': ['agent prompt']}})
         code, out, _ = self.run_cli('send', '@codex', '--json', '--', 'hi')
@@ -202,7 +205,7 @@ class PlacesTests(CliCase):
         self.assertEqual([r['to'] for r in json.loads(out)['results']],  # reported in a fixed order
                          ['@claude', '@helper', '@tester@other', '@codex@desktop'])
         self.assertEqual([c[2:4] for c in self.calls() if c[:1] == ['--machine']],
-                         [['agent', 'list'], ['agent', 'list'], ['agent', 'prompt']])
+                         [['agent', 'list'], ['agent', 'list'], ['agent', 'get'], ['agent', 'prompt']])
         body = parse(next(p['text'] for p in self.prompts() if p['target'] == 'codex')).body
         self.assertIn('You are @codex.', body)
         self.assertIn('@tester (claude on ', body)
