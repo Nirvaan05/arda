@@ -1,0 +1,182 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+@font-face{font-family:ID;src:url(InterDisplay-Black.woff2);font-weight:900}
+@font-face{font-family:ID;src:url(InterDisplay-Bold.woff2);font-weight:700}
+@font-face{font-family:ID;src:url(InterDisplay-Medium.woff2);font-weight:500}
+:root{--g:#1B3B28;--g2:#12291C;--g3:#0D1F15;--lime:#92FF5F;--white:#F7F7F2;--or:#FF7036;--ice:#BFF2F0;--mint:#CFF1D2}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1920px;height:1080px;overflow:hidden;background:var(--g)}
+body{font-family:ID,'Segoe UI',sans-serif;color:var(--white);position:relative}
+.scene{position:absolute;inset:0;overflow:hidden}
+.grid{background-color:var(--g);background-image:radial-gradient(rgba(146,255,95,.07) 1.5px,transparent 1.6px);background-size:48px 48px}
+.mono{font-family:'Cascadia Mono',Consolas,monospace}
+.h{font-weight:900;letter-spacing:-.035em;line-height:.95}
+.abs{position:absolute}
+.pane{position:absolute;background:var(--g2);border:1.5px solid rgba(146,255,95,.16);border-radius:22px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.35)}
+.bar{height:56px;display:flex;align-items:center;gap:14px;padding:0 24px;border-bottom:1.5px solid rgba(146,255,95,.1);font-size:22px;font-weight:700}
+.dot{width:12px;height:12px;border-radius:50%}
+.kind{font-family:'Cascadia Mono',monospace;font-size:18px;font-weight:400;opacity:.55;margin-left:auto}
+.body{padding:22px 26px;font-family:'Cascadia Mono',monospace;font-size:21px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+.ln{opacity:0}
+.cmd::before{content:'$ ';color:var(--lime)}
+.cur{display:inline-block;width:.6em;height:1.1em;background:var(--lime);vertical-align:-.18em;margin-left:2px}
+.fake{height:14px;border-radius:7px;background:rgba(247,247,242,.14);margin:14px 0}
+.pill{position:absolute;box-shadow:0 18px 40px rgba(0,0,0,.35);padding:14px 30px;border-radius:999px;font-weight:900;font-size:34px;letter-spacing:-.01em}
+.lime{color:var(--lime)} .or{color:var(--or)} .mint{color:var(--mint)} .ice{color:var(--ice)} .dim{color:rgba(247,247,242,.5)}
+</style></head><body>
+
+<!-- 1 HOOK -->
+<div id="s1" class="scene grid">
+  <div id="s1h" class="abs h" style="left:0;right:0;top:120px;text-align:center;font-size:124px">You are the <span class="or">relay.</span></div>
+  <div id="p1" class="pane" style="left:150px;top:350px;width:420px;height:330px">
+    <div class="bar"><span class="dot" style="background:var(--ice)"></span>@implementer<span class="kind">claude</span></div><div class="body" id="p1b"></div></div>
+  <div id="p2" class="pane" style="left:750px;top:350px;width:420px;height:330px">
+    <div class="bar"><span class="dot" style="background:var(--mint)"></span>@reviewer<span class="kind">codex</span></div><div class="body" id="p2b"></div></div>
+  <div id="p3" class="pane" style="left:1350px;top:350px;width:420px;height:330px">
+    <div class="bar"><span class="dot" style="background:var(--lime)"></span>@tester<span class="kind">agent</span></div><div class="body" id="p3b"></div></div>
+  <div id="s1sub" class="abs mono or" style="left:0;right:0;top:800px;text-align:center;font-size:44px;font-weight:700">copy. paste. repeat.</div>
+  <div id="fx1"></div>
+  <div id="you" class="pill" style="background:var(--or);color:var(--g3);left:0;top:0">YOU</div>
+</div>
+
+<!-- 2 REVEAL -->
+<div id="s2" class="scene" style="background:var(--lime);color:var(--g)">
+  <div id="s2logo" class="abs h" style="left:0;right:0;top:250px;text-align:center;font-size:400px;letter-spacing:-.025em">ARDA</div>
+  <div id="s2sub" class="abs" style="left:0;right:0;top:700px;text-align:center;font-size:64px;font-weight:700;letter-spacing:-.02em">Agents shouldn’t live in separate worlds.</div>
+</div>
+
+<!-- 3 FIND -->
+<div id="s3" class="scene grid">
+  <div id="s3c" class="abs" style="left:120px;top:330px;width:680px">
+    <div class="h" style="font-size:96px">Find each other<br><span class="lime">by name.</span></div>
+    <div id="s3sub" class="mint" style="font-size:38px;font-weight:500;margin-top:36px">Across sessions and machines.</div>
+  </div>
+  <div id="t3" class="pane" style="left:860px;top:250px;width:960px;height:580px">
+    <div class="bar"><span class="dot" style="background:var(--ice)"></span>@implementer<span class="kind">laptop</span></div>
+    <div class="body">
+<div class="ln cmd" data-at="7.35" data-cps="22">arda peers</div><div class="ln" data-at="8.05"><span class="dim">main: Herdr session main on this machine (laptop)</span></div><div class="ln" data-at="8.2">  <span class="lime">@implementer</span>   claude   working  <span class="dim">(you)</span></div><div class="ln" data-at="8.35">  <span class="lime">@tester</span>        claude   idle</div><div class="ln" data-at="8.6"><span class="dim">desktop: saved machine desktop, Herdr session default</span></div><div class="ln" id="revrow" data-at="8.75">  <span class="lime">@reviewer</span>      codex    idle</div><div class="ln" data-at="9.0"><span class="dim">gpu: saved machine gpu, Herdr session default</span></div><div class="ln" data-at="9.15">  <span class="lime">@analyst</span>       codex    idle</div>
+    </div></div>
+</div>
+
+<!-- 4 HAND OFF -->
+<div id="s4" class="scene grid">
+  <div id="s4h" class="abs h" style="left:0;right:0;top:96px;text-align:center;font-size:96px">Hand off work. <span class="lime">Get results back.</span></div>
+  <div id="a4" class="pane" style="left:110px;top:290px;width:830px;height:560px">
+    <div class="bar"><span class="dot" style="background:var(--ice)"></span>@implementer<span class="kind">claude · laptop</span></div>
+    <div class="body">
+<div class="ln cmd" data-at="11.3" data-cps="95">arda task @reviewer -- 'Review the parser change in src/parser.py for unhandled edge cases.'</div><div class="ln lime" data-at="12.45">delivered: task_request 708d3e to @reviewer</div><div class="ln ice" data-at="15.25" style="margin-top:22px">[arda/1 result id=708d3e from=@reviewer]</div><div class="ln" data-at="15.4">Two issues: POST is retried; no jitter.</div>
+    </div></div>
+  <div id="b4" class="pane" style="left:980px;top:290px;width:830px;height:560px">
+    <div class="bar"><span class="dot" style="background:var(--mint)"></span>@reviewer<span class="kind">codex · desktop</span></div>
+    <div class="body">
+<div class="ln mint" data-at="13.05">[arda/1 task_request id=708d3e from=@implementer.s3f9a… to=@reviewer]</div><div class="ln dim" data-at="13.2">Review the parser change in src/parser.py…</div><div class="ln cmd" data-at="13.45" data-cps="60">arda ack @implementer.s3f9a… 708d3e</div><div class="ln cmd" data-at="14.0" data-cps="125">arda result @implementer.s3f9a… 708d3e -- 'Two issues: POST is retried; no jitter.'</div>
+    </div></div>
+  <div id="pk" class="pill mono" style="background:var(--lime);color:var(--g3);font-size:28px;left:0;top:0">task 708d3e</div>
+  <div id="s4f" class="abs" style="left:0;right:0;top:920px;text-align:center;font-size:44px;font-weight:700">Nobody relays anything.</div>
+</div>
+
+<!-- 5 THIN -->
+<div id="s5" class="scene grid">
+  <div class="abs" style="left:0;right:0;top:230px;text-align:center">
+    <div id="c1" class="h" style="font-size:132px;margin-bottom:28px"><span class="or">No</span> daemon.</div>
+    <div id="c2" class="h" style="font-size:132px;margin-bottom:28px"><span class="or">No</span> database.</div>
+    <div id="c3" class="h" style="font-size:132px"><span class="or">No</span> MCP server.</div>
+    <div id="c4" class="mono lime" style="font-size:46px;font-weight:700;margin-top:56px">Pure Python standard library.</div>
+  </div>
+</div>
+
+<!-- 6 OUTRO -->
+<div id="s6" class="scene" style="background:var(--lime);color:var(--g)">
+  <div id="o1" class="abs h" style="left:0;right:0;top:250px;text-align:center;font-size:150px">Different agents.</div>
+  <div id="o2" class="abs h" style="left:0;right:0;top:410px;text-align:center;font-size:150px">One working team.</div>
+  <div id="o3" class="abs" style="left:0;right:0;top:680px;text-align:center">
+    <span class="mono" style="display:inline-block;background:var(--g);color:var(--lime);border-radius:999px;padding:24px 48px;font-size:38px"><span style="opacity:.6">$</span> herdr plugin install Nirvaan05/arda</span></div>
+  <div id="o4" class="abs" style="left:110px;bottom:80px;display:flex;align-items:baseline;gap:22px">
+    <span class="h" style="font-size:64px;letter-spacing:-.05em">ARDA</span><span style="font-size:30px;font-weight:700;opacity:.75">a Herdr plugin</span></div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const cl=(x,a=0,b=1)=>Math.min(b,Math.max(a,x));
+const p=(t,a,b)=>cl((t-a)/(b-a));
+const eo=x=>1-Math.pow(1-x,3), eio=x=>x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2, eback=x=>1+2.2*Math.pow(x-1,3)+1.2*Math.pow(x-1,2);
+function show(el,t,a,dy=30,d=.35){const k=eo(p(t,a,a+d));el.style.opacity=k;el.style.transform=`translateY(${(1-k)*dy}px)`}
+function vis(el,on){el.style.visibility=on?'visible':'hidden'}
+
+// terminal lines: typed commands + appearing output
+document.querySelectorAll('.body').forEach(b=>[...b.childNodes].forEach(n=>n.nodeType==3&&n.remove()));
+const LINES=[...document.querySelectorAll('.ln')].map(el=>({el,at:+el.dataset.at,cps:+el.dataset.cps||0,full:el.textContent}));
+function terms(t){for(const L of LINES){
+  if(t<L.at){L.el.style.opacity=0;continue}
+  if(L.cps){const n=Math.floor((t-L.at)*L.cps);const done=n>=L.full.length;
+    L.el.innerHTML='';L.el.append(L.full.slice(0,n));L.el.style.opacity=1;
+    if(!done||(t-L.at)*L.cps<L.full.length+8){const c=document.createElement('span');c.className='cur';c.style.opacity=done&&Math.floor(t*3)%2?0:1;L.el.append(c)}}
+  else{const k=eo(p(t,L.at,L.at+.2));L.el.style.opacity=k;L.el.style.transform=`translateX(${(1-k)*-14}px)`}}}
+
+// scene 1: the human relay
+const C=[[360,515],[960,515],[1560,515]];
+const HOPS=[[0,1,.75,1.25],[1,2,1.4,1.85],[2,0,2.0,2.45],[0,1,2.55,2.85],[1,2,2.95,3.2],[2,1,3.28,3.46],[1,0,3.52,3.68]];
+const fx1=$('fx1');
+function bars(t){
+  const per=[[],[],[]];
+  HOPS.forEach(h=>{if(t>=h[3])per[h[1]].push(h[3])});
+  ['p1b','p2b','p3b'].forEach((id,i)=>{const b=$(id);const want=Math.min(per[i].length,5);
+    while(b.children.length<want){const d=document.createElement('div');d.className='fake';d.style.width=(40+((b.children.length*37+i*23)%55))+'%';b.append(d)}
+    while(b.children.length>want)b.lastChild.remove();
+    [...b.children].forEach((d,j)=>{const age=t-per[i][j];d.style.background=age<.3?'rgba(255,112,54,.85)':'rgba(247,247,242,.14)'})});
+}
+function s1(t){
+  show($('s1h'),t,.15,40,.45);
+  ['p1','p2','p3'].forEach((id,i)=>{const k=eo(p(t,.05+i*.1,.5+i*.1));const sh=t>2.5?Math.sin(t*90+i*2)*3*p(t,2.5,3.5):0;
+    $(id).style.opacity=k;$(id).style.transform=`translate(${sh}px,${(1-k)*60}px)`});
+  bars(t);
+  // YOU pill
+  let x=C[0][0],y=C[0][1],sc=eback(p(t,.45,.75));
+  for(const [a,b,s,e] of HOPS){if(t>=s){const k=eio(p(t,s,e));x=C[a][0]+(C[b][0]-C[a][0])*k;y=C[a][1]-Math.sin(Math.PI*k)*170}}
+  const you=$('you');you.style.transform=`translate(${x-62}px,${y-36}px) scale(${sc})`;you.style.opacity=t<.45?0:1;
+  // floating copy/paste labels
+  fx1.innerHTML='';
+  HOPS.forEach(([a,b,s,e])=>{[[a,s,'copy'],[b,e,'paste']].forEach(([i,t0,w])=>{const age=t-t0;if(age<0||age>.5)return;
+    const d=document.createElement('div');d.className='abs mono or';d.textContent=w;d.style.cssText+=`;font-size:30px;font-weight:700;left:${C[i][0]-50}px;top:${C[i][1]+(w=='copy'?-85:60)-age*90}px;opacity:${1-age/.5}`;fx1.append(d)})});
+  show($('s1sub'),t,2.1,20,.3);
+}
+// scene 2
+function s2(t){
+  const r=eio(p(t,3.7,4.0))*2300;$('s2').style.clipPath=`circle(${r}px at 360px 515px)`;
+  const k=eo(p(t,3.85,4.6));$('s2logo').style.transform=`scale(${1.25-.25*k})`;$('s2logo').style.opacity=p(t,3.85,4.05);
+  show($('s2sub'),t,4.35,24,.4);
+}
+// scene 3
+function s3(t){
+  const k=eio(p(t,6.72,7.0));$('s3').style.transform=`translateY(${(1-k)*1080}px)`;
+  const out=eio(p(t,10.7,10.95));
+  $('s3c').style.opacity=(1-out);$('t3').style.opacity=(1-out);
+  $('s3c').style.transform=`translateX(${-out*80}px)`;$('t3').style.transform=`translateX(${-out*80}px)`;
+  show($('s3sub'),t,7.6,20);
+  const hl=p(t,9.5,9.8);$('revrow').style.background=`rgba(146,255,95,${.18*hl})`;$('revrow').style.borderRadius='6px';
+}
+// scene 4
+function s4(t){
+  show($('s4h'),t,11.0,30,.4);
+  ['a4','b4'].forEach((id,i)=>{const k=eo(p(t,11.0+i*.08,11.45+i*.08));$(id).style.opacity=k;$(id).style.transform=`translateX(${(1-k)*80}px)`});
+  const pk=$('pk');let on=false,x=0,y=0,lab='';
+  const fly=(s,e,x0,x1,l)=>{if(t>=s&&t<=e+.12){on=true;const k=eio(p(t,s,e));x=x0+(x1-x0)*k;y=690-Math.sin(Math.PI*k)*110;lab=l}};
+  fly(12.5,13.0,520,1390,'task 708d3e');fly(14.75,15.2,1390,520,'result 708d3e');
+  pk.textContent=lab;pk.style.opacity=on?1:0;pk.style.transform=`translate(${x-120}px,${y}px)`;
+  show($('s4f'),t,14.75,20,.3);
+}
+// scene 5
+function s5(t){[['c1',16.1],['c2',16.45],['c3',16.8]].forEach(([id,a])=>{const k=p(t,a,a+.18);$(id).style.opacity=k;$(id).style.transform=`scale(${1.35-.35*eo(k)})`});show($('c4'),t,17.25,20,.3)}
+// scene 6
+function s6(t){
+  const k=eio(p(t,18.4,18.72));$('s6').style.clipPath=`inset(0 ${(1-k)*100}% 0 0)`;
+  show($('o1'),t,18.7,40,.4);show($('o2'),t,19.0,40,.4);show($('o3'),t,19.5,30,.4);show($('o4'),t,19.8,20,.4);
+}
+const SC=[['s1',0,4.0],['s2',3.7,7.0],['s3',6.72,11.0],['s4',10.98,16],['s5',16,18.72],['s6',18.4,99]];
+window.render=function(t){
+  for(const [id,a,b] of SC)vis($(id),t>=a&&t<b);
+  terms(t);s1(t);s2(t);s3(t);s4(t);s5(t);s6(t);
+};
+window.ready=document.fonts.ready.then(()=>Promise.all([...document.fonts].map(f=>f.load()))).then(()=>{render(0);return document.fonts.check('900 40px ID')});
+</script></body></html>
