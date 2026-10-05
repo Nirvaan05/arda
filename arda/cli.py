@@ -6,7 +6,6 @@ import os
 import shlex
 import shutil
 import sys
-import tempfile
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -194,25 +193,32 @@ def deliver(place, route, message, force=False, skip_busy=False, fp=None):
 
 
 def allowed_file(path):
-    """A --file must be a visible file in the working directory or the temporary directory.
+    """A --file must be a visible regular file in the working directory or /tmp.
 
     Agents may run arda without a per-command prompt once the user approved
-    ARDA, so --file must not become a way to send any readable file (keys,
-    credentials, dotfiles) to a peer without the harness seeing it read. The
-    home directory, / and their ancestors never count as a working directory.
+    ARDA, so --file must not become an easy way to send keys, credentials or
+    dotfiles to a peer. The caller chooses its working directory and its
+    TMPDIR, so neither may make a hidden path acceptable: any hidden path
+    component below the home directory is refused wherever the caller stands,
+    $TMPDIR is ignored, and home, / and their ancestors never count as a
+    working directory. This is a narrow guard against accidents, not a
+    boundary against a determined agent that can read the file itself.
     """
     home = os.path.realpath(os.path.expanduser('~'))
+    real = os.path.realpath(path)
+    if real.startswith(home + '/') and any(part.startswith('.') for part in os.path.relpath(real, home).split('/')):
+        raise UsageError('--file cannot be a hidden file or inside a hidden directory')
 
     def usable(root):
         return root != '/' and not (home + '/').startswith(root.rstrip('/') + '/')
 
-    roots = [root for root in dict.fromkeys(os.path.realpath(p) for p in (os.getcwd(), '/tmp', tempfile.gettempdir()))
-             if usable(root)]
-    real = os.path.realpath(path)
+    roots = [root for root in dict.fromkeys(os.path.realpath(p) for p in (os.getcwd(), '/tmp')) if usable(root)]
     for root in roots:
         if real.startswith(root.rstrip('/') + '/'):
             if any(part.startswith('.') for part in os.path.relpath(real, root).split('/')):
                 raise UsageError('--file cannot be a hidden file or inside a hidden directory')
+            if not os.path.isfile(real):
+                raise UsageError(f'--file must be a regular file: {path}')
             return real
     raise UsageError(f'--file must be in the working directory (not your home directory) or in /tmp: {path}; '
                      'copy the content there, or pass it as text')

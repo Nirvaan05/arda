@@ -216,7 +216,7 @@ class CliTests(CliCase):
         self.assertIn('now waiting at an approval or question prompt', result['detail'])
 
     def test_file_must_be_in_the_working_directory_or_temp(self):
-        outside = Path.home() / '.arda-test-should-not-exist'
+        outside = Path.home() / 'arda-test-should-not-exist'
         code, _, err = self.run_cli('send', '@codex', '--file', str(outside))
         self.assertEqual((code, self.prompts()), (2, []))
         self.assertIn('--file must be in the working directory', err)
@@ -243,6 +243,25 @@ class CliTests(CliCase):
         finally:
             os.chdir(old_cwd)
         self.assertEqual([parse(p['text']).body for p in self.prompts()], ['fine'])
+
+    def test_file_guard_cannot_be_moved_by_the_working_directory_or_tmpdir(self):
+        home = Path(self.tmp.name) / 'home'
+        (home / '.ssh').mkdir(parents=True)
+        (home / '.ssh' / 'id_rsa').write_text('private')
+        (home / 'notes').mkdir()
+        old_cwd = os.getcwd()
+        try:
+            with mock.patch.dict(os.environ, {'HOME': str(home)}):
+                os.chdir(home / '.ssh')  # the caller picks its working directory
+                self.assertEqual(self.run_cli('send', '@codex', '--file', 'id_rsa')[0], 2)
+                os.chdir(home / 'notes')
+                with mock.patch.dict(os.environ, {'TMPDIR': str(home / '.ssh')}), \
+                        mock.patch('tempfile.tempdir', None):  # and its temporary directory
+                    self.assertEqual(self.run_cli('send', '@codex', '--file', str(home / '.ssh' / 'id_rsa'))[0], 2)
+                self.assertEqual(self.run_cli('send', '@codex', '--file', '.')[0], 2)  # not a regular file
+        finally:
+            os.chdir(old_cwd)
+        self.assertEqual(self.prompts(), [])
 
     def test_an_odd_reply_after_typing_does_not_crash(self):
         self.set_agents(agent('claude', 'w1:p1'), agent('codex', 'w1:p2', null_reply=True))
