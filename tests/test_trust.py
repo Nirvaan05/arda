@@ -25,6 +25,10 @@ class TrustTests(CliCase):
         # A plain shell pane (no agent), and no codex binary so rules are not validated here.
         self.env.update(CLAUDE_CONFIG_DIR=str(self.claude), CODEX_HOME=str(self.codex), HERDR_PANE_ID='w1:p9',
                         PATH='/usr/bin:/bin')
+        # Whatever the test runner itself runs in, never consult a real Herdr server.
+        under_herdr = mock.patch('arda.cli._under_herdr', return_value=None)
+        under_herdr.start()
+        self.addCleanup(under_herdr.stop)
 
     def settings(self):
         return json.loads((self.claude / 'settings.json').read_text())
