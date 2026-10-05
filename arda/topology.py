@@ -11,11 +11,16 @@ import hashlib
 import os
 import re
 import socket
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from .envelope import Address, fingerprint
 from .herdr import Herdr, HerdrError
+
+# How long an agent listing still describes an agent well enough to send to it without
+# asking Herdr again. Herdr refuses a blocked agent at prompt time either way.
+FRESH_FOR = 2.0
 
 
 @dataclass
@@ -29,10 +34,15 @@ class Place:
     agents: list = field(default_factory=list)
     error: str | None = None
     failure: HerdrError | None = None
+    listed_at: float | None = None
 
     @property
     def reachable(self):
         return self.error is None
+
+    @property
+    def fresh(self):
+        return self.listed_at is not None and time.monotonic() - self.listed_at < FRESH_FOR
 
 
 def _label(text, taken, fallback):
@@ -113,6 +123,7 @@ def survey(places):
     def ask(place):
         try:
             place.agents = place.herdr.agents()
+            place.listed_at = time.monotonic()
         except HerdrError as err:
             place.agents, place.error, place.failure = [], f'{err.code}: {err.message}', err
     with ThreadPoolExecutor(max_workers=max(1, len(places))) as pool:
@@ -125,7 +136,13 @@ class Unresolved(Exception):
 
 
 def resolve(address, places):
-    """Find the place and Herdr target for an address. Never guesses between agents with the same name."""
+    """Find the place of an address, and its agent when a listing already showed it.
+
+    Returns (place, agent); agent is None for a pane ID or a bare place. Never guesses
+    between agents with the same name. A fingerprinted address (a reply) names exactly
+    one agent, so this machine's sessions are asked first and saved machines, which
+    cost SSH round trips, only when the agent is not on this machine.
+    """
     current = places[0]
     if address.place:
         place = next((p for p in places if p.name == address.place), None)
@@ -133,19 +150,25 @@ def resolve(address, places):
             known = ', '.join(p.name for p in places)
             raise Unresolved(f'no place called {address.place!r} in this Herdr environment (places: {known})')
         if address.name is None:
-            return place
+            return place, None
         survey([place])
         if not place.reachable:
             raise Unresolved(f'{place.name} is unreachable, so nothing was sent ({place.error})')
         candidates = [place]
     elif address.name is None:
-        return current  # a bare pane ID is a route in the caller's own Herdr server
+        return current, None  # a bare pane ID is a route in the caller's own Herdr server
     else:
         candidates = places
-    survey([p for p in candidates if not p.agents and p.error is None])
-    matches = [(p, a) for p in candidates for a in p.agents if a.get('name') == address.name]
+    tiers = [candidates]
     if address.fingerprint:
-        matches = [(p, a) for p, a in matches if fingerprint(a.get('terminal_id')) == address.fingerprint]
+        tiers = [[p for p in candidates if p.kind == 'session'], [p for p in candidates if p.kind != 'session']]
+    for tier in tiers:
+        survey([p for p in tier if not p.agents and p.error is None])
+        matches = [(p, a) for p in candidates for a in p.agents if a.get('name') == address.name]
+        if address.fingerprint:
+            matches = [(p, a) for p, a in matches if fingerprint(a.get('terminal_id')) == address.fingerprint]
+        if matches:
+            break
     unreachable = [p.name for p in candidates if not p.reachable]
     if not matches:
         detail = f'no live agent {address} in this Herdr environment'
@@ -158,4 +181,4 @@ def resolve(address, places):
     if len(matches) > 1:
         options = ', '.join(str(Address(address.name, p.name, address.fingerprint)) for p, _ in matches)
         raise Unresolved(f'@{address.name} is ambiguous in this Herdr environment; use one of: {options}')
-    return matches[0][0]
+    return matches[0]

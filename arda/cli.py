@@ -132,17 +132,22 @@ def outcome(message, status, detail, place=None, pane=None):
             'to': to, 'place': place.name if place else None, 'pane_id': pane, 'detail': detail}
 
 
-def deliver(place, route, message, force=False, skip_busy=False, fp=None):
-    """Hand a message to the Herdr server of `place` and report what is actually known about delivery."""
+def deliver(place, route, message, force=False, skip_busy=False, fp=None, agent=None):
+    """Hand a message to the Herdr server of `place` and report what is actually known about delivery.
+
+    `agent` is the receiver as the place's listing showed it; it is used instead of
+    asking Herdr again while that listing is fresh.
+    """
     herdr = place.herdr
     to = message.recipient if place.current else f'{message.recipient}@{place.name}'
-    try:
-        agent = herdr.agent(route)
-    except HerdrError as err:
-        if err.code == 'agent_not_found':
-            return outcome(message, 'not_delivered', f'no live agent {to} in this Herdr environment', place)
-        return outcome(message, 'not_delivered', f'nothing was sent: {place.name} did not answer '
-                                                 f'({err.code}: {err.message})', place)
+    if agent is None or not place.fresh:
+        try:
+            agent = herdr.agent(route)
+        except HerdrError as err:
+            if err.code == 'agent_not_found':
+                return outcome(message, 'not_delivered', f'no live agent {to} in this Herdr environment', place)
+            return outcome(message, 'not_delivered', f'nothing was sent: {place.name} did not answer '
+                                                     f'({err.code}: {err.message})', place)
     state, pane = agent.get('agent_status'), agent.get('pane_id')
     if fp and fingerprint(agent.get('terminal_id')) != fp:
         return outcome(message, 'not_delivered', f'the agent now called {to} is not the one this message is '
@@ -237,7 +242,7 @@ def send(herdr, args, kind, re=None):
     message = Message(type=kind, sender=me['address'], recipient=address(to.route), body=body, re=re)
     places = discover(herdr)
     try:
-        place = resolve(to, places)
+        place, agent = resolve(to, places)
     except Unresolved as err:
         return outcome(message, 'not_delivered', str(err))
     if place.current and to.route in (me['name'], me['pane_id']):
@@ -246,7 +251,7 @@ def send(herdr, args, kind, re=None):
         raise UsageError('you have no Herdr agent name, and a pane ID means nothing in another place, so '
                          f'{place.name} could not reply; name this agent first (herdr agent rename '
                          f'{me["pane_id"]} <name>)')
-    return deliver(place, to.route, message, force=getattr(args, 'force', False), fp=to.fingerprint)
+    return deliver(place, to.route, message, force=getattr(args, 'force', False), fp=to.fingerprint, agent=agent)
 
 
 def summary(result):
@@ -366,18 +371,22 @@ def cmd_introduce(herdr, args):
         for text in dict.fromkeys(args.to):
             to = parse_address(text)
             try:
-                place = resolve(to, places)
+                place, agent = resolve(to, places)
             except Unresolved as err:
                 unresolved.append({'status': 'not_delivered', 'type': 'note', 'to': str(to), 'detail': str(err)})
                 lines.append(f'not_delivered: {to}: {err}')
                 continue
-            if (place.name, to.route) not in [(p.name, r) for p, r in recipients]:
-                recipients.append((place, to.route))
+            if (place.name, to.route) not in [(p.name, r) for p, r, _ in recipients]:
+                recipients.append((place, to.route, agent))
     else:
-        by_name = {place.name: place for place in places}
-        recipients = [(by_name[peer['place']], peer['name']) for peer in named if not peer['you']]
+        listed = {(place.name, agent.get('name')): (place, agent) for place in places for agent in place.agents}
+        recipients = []
+        for peer in named:
+            if not peer['you']:
+                place, agent = listed[peer['place'], peer['name']]
+                recipients.append((place, peer['name'], agent))
     results = unresolved
-    for place, name in recipients:
+    for place, name, agent in recipients:
         if place.current and me and name in (me['name'], me['pane_id']):
             continue
         others = [f'{peer["address"]} ({peer["agent"] or "?"} on {peer["machine"]})' for peer in named
@@ -386,7 +395,7 @@ def cmd_introduce(herdr, args):
                                    cmd=command() if place.kind == 'session' else 'arda')
         message = Message(type='note', sender=me['address'] if me else SYSTEM, recipient=address(name), body=body)
         try:
-            result = deliver(place, name, message, force=args.force, skip_busy=True)
+            result = deliver(place, name, message, force=args.force, skip_busy=True, agent=agent)
         except HerdrError as err:  # raised before anything was typed for this recipient
             result = outcome(message, 'not_delivered', f'herdr: {err.message}', place)
         results.append(result)

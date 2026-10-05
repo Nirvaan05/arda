@@ -29,7 +29,9 @@ message is sent:
 
 - A name found in exactly one reachable place is sent there. A name found in several
   places is refused with the qualified choices; ARDA never picks one.
-- A fingerprint must match the agent found, or nothing is sent.
+- A fingerprint must match the agent found, or nothing is sent. A fingerprinted address
+  names exactly one agent, so it is looked up in this machine's sessions first and in
+  saved machines only when it is not found there.
 - A place that does not answer is reported as unreachable. Nothing is sent to it.
 
 Places are relative to the machine that resolves them, so a reply is addressed to the

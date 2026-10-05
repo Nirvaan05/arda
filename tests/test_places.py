@@ -80,6 +80,23 @@ class PlacesTests(CliCase):
         self.assertIn('the agent that sent the message is gone', json.loads(out)['detail'])
         self.assertEqual(len(self.prompts()), 2)
 
+    def calls(self):
+        return json.loads(self.state_path.read_text())['calls']
+
+    def test_a_reply_to_this_machine_asks_no_saved_machine(self):
+        self.env['HERDR_PANE_ID'] = 'w1:p2'
+        self.assertEqual(self.run_cli('result', '@claude.aaaa1111', 'abc123', '--', 'done')[0], 0)
+        self.assertEqual([c for c in self.calls() if c[0] == '--machine'], [])
+
+    def test_a_listed_agent_is_prompted_without_asking_for_it_again(self):
+        self.assertEqual(self.run_cli('send', '@codex', '--', 'hi')[0], 0)
+        self.assertEqual([c[2:4] for c in self.calls() if c[:2] == ['--machine', 'd1']],
+                         [['agent', 'list'], ['agent', 'prompt']])
+        with mock.patch('arda.topology.FRESH_FOR', 0):
+            self.assertEqual(self.run_cli('send', '@codex', '--', 'hi')[0], 0)
+        self.assertEqual([c[2:4] for c in self.calls() if c[:2] == ['--machine', 'd1']][2:],
+                         [['agent', 'list'], ['agent', 'get'], ['agent', 'prompt']])
+
     def test_unreachable_places_fail_clearly_and_send_nothing(self):
         code, out, _ = self.run_cli('send', '@codex@gpu', '--json', '--', 'hi')
         self.assertEqual((code, json.loads(out)['status']), (1, 'not_delivered'))

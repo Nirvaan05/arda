@@ -14,9 +14,9 @@ _UNREACHABLE = ('remote SSH connection failed', 'remote platform detection faile
 
 
 # Bound every call, so one machine that hangs cannot stall a send for long. At worst a
-# send makes six lookups (two listings, two identity checks, the survey, the agent) and
-# one prompt: 6 x 10 s + 20 s + the 15 s confirmation, under the two minutes agent
-# harnesses typically allow a command.
+# send makes seven lookups (two listings, two identity checks, a survey of this machine's
+# sessions, one of the saved machines, the agent) and one prompt: 7 x 10 s + 20 s + the
+# 15 s confirmation, under the two minutes agent harnesses typically allow a command.
 LOOKUP_TIMEOUT = 10
 PROMPT_TIMEOUT = 20
 

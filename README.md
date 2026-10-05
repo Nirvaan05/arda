@@ -172,9 +172,11 @@ actions, commands also show their result as a Herdr notification.
 - ARDA relies on Herdr's view of an agent's state. Herdr 0.9.3 does not always recognise
   a harness's own dialogs as "blocked" (Claude Code's end-of-turn tips, for example), and
   a message typed then lands in that dialog.
-- Every send asks each reachable place for its agents, so messages to other machines
-  cost a few Herdr round trips. Each lookup gives up after 15 seconds, so one machine
-  that hangs slows a send down but cannot stall it.
+- A message addressed by name asks every reachable place for its agents, in parallel,
+  because the name must be unique among them: one Herdr round trip per saved machine,
+  plus the prompt itself. A reply names the exact agent that asked, so it asks saved
+  machines only when that agent is not on this machine. Each lookup gives up after 10
+  seconds, so one machine that hangs slows a send down but cannot stall it.
 - Nothing is stored. If a message cannot be delivered, ARDA reports it and does not
   retry.
 - Cross-machine messaging has been verified with real Herdr servers and Herdr's own
