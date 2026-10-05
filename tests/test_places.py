@@ -109,11 +109,15 @@ class PlacesTests(CliCase):
         self.assertEqual(self.prompts(), [])
 
     def test_introduce_reaches_agents_in_every_reachable_place(self):
-        code, _, _ = self.run_cli('introduce', env={'HERDR_PLUGIN_ID': 'arda'})
+        code, out, _ = self.run_cli('introduce', '--json', env={'HERDR_PLUGIN_ID': 'arda'})
         self.assertEqual(code, 0)
-        self.assertEqual([(p['place'], p['target']) for p in self.prompts()],
-                         [('current', 'claude'), ('current', 'helper'), ('other', 'tester'), ('d1', 'codex')])
-        body = parse(self.prompts()[-1]['text']).body
+        self.assertCountEqual([(p['place'], p['target']) for p in self.prompts()],
+                              [('current', 'claude'), ('current', 'helper'), ('other', 'tester'), ('d1', 'codex')])
+        self.assertEqual([r['to'] for r in json.loads(out)['results']],  # reported in a fixed order
+                         ['@claude', '@helper', '@tester@other', '@codex@desktop'])
+        self.assertEqual([c[2:4] for c in self.calls() if c[:1] == ['--machine']],
+                         [['agent', 'list'], ['agent', 'list'], ['agent', 'prompt']])
+        body = parse(next(p['text'] for p in self.prompts() if p['target'] == 'codex')).body
         self.assertIn('You are @codex.', body)
         self.assertIn('@tester (claude on ', body)
 

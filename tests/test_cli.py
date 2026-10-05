@@ -284,7 +284,7 @@ class CliTests(CliCase):
         code, _, _ = self.run_cli('introduce', env={'HERDR_PLUGIN_ID': 'arda'})
         self.assertEqual(code, 0)
         texts = [p['text'] for p in self.prompts()]
-        self.assertEqual([p['target'] for p in self.prompts()], ['claude', 'codex'])
+        self.assertCountEqual([p['target'] for p in self.prompts()], ['claude', 'codex'])  # delivered in parallel
         self.assertTrue(all(parse(text).sender == '@arda' for text in texts))
         self.assertIn('[arda] From ARDA itself. No reply needed.', texts[0])
         notifications = json.loads(self.state_path.read_text())['notifications']

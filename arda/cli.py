@@ -8,6 +8,7 @@ import shutil
 import sys
 import tempfile
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import __version__, trust
@@ -385,7 +386,7 @@ def cmd_introduce(herdr, args):
             if not peer['you']:
                 place, agent = listed[peer['place'], peer['name']]
                 recipients.append((place, peer['name'], agent))
-    results = unresolved
+    notes = []
     for place, name, agent in recipients:
         if place.current and me and name in (me['name'], me['pane_id']):
             continue
@@ -394,12 +395,20 @@ def cmd_introduce(herdr, args):
         body = INTRODUCTION.format(me=address(name), peers=', '.join(others) or 'none yet',
                                    cmd=command() if place.kind == 'session' else 'arda')
         message = Message(type='note', sender=me['address'] if me else SYSTEM, recipient=address(name), body=body)
+        notes.append((place, name, agent, message))
+
+    def introduce(note):
+        place, name, agent, message = note
         try:
-            result = deliver(place, name, message, force=args.force, skip_busy=True, agent=agent)
+            return deliver(place, name, message, force=args.force, skip_busy=True, agent=agent)
         except HerdrError as err:  # raised before anything was typed for this recipient
-            result = outcome(message, 'not_delivered', f'herdr: {err.message}', place)
-        results.append(result)
-        lines.append(f'{result["status"]}: {result["to"]}: {result["detail"]}')
+            return outcome(message, 'not_delivered', f'herdr: {err.message}', place)
+    # Each delivery waits to see its receiver start, so deliver them all at once, while
+    # the listings that found the receivers are still fresh.
+    with ThreadPoolExecutor(max_workers=max(1, len(notes))) as pool:
+        delivered = list(pool.map(introduce, notes))
+    results = unresolved + delivered
+    lines += [f'{result["status"]}: {result["to"]}: {result["detail"]}' for result in delivered]
     if not results:
         return {'status': 'none', 'results': []}, '\n'.join(lines + ['no named agents to introduce'])
     statuses = {result['status'] for result in results}
