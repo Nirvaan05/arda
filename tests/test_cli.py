@@ -39,7 +39,7 @@ class CliCase(unittest.TestCase):
     def prompts(self):
         return json.loads(self.state_path.read_text())['prompts']
 
-    def run_cli(self, *argv, env=None, stdin=''):
+    def run_cli(self, *argv, env=None, stdin='', entry=None):
         out, err = io.StringIO(), io.StringIO()
         environment = {**self.env, **(env or {})}
         unset = [key for key, value in environment.items() if value is None]
@@ -49,7 +49,7 @@ class CliCase(unittest.TestCase):
             for key in unset:
                 os.environ.pop(key, None)
             try:
-                code = main(list(argv))
+                code = (entry or main)(list(argv))
             except SystemExit as exit_:  # argparse rejects the command line
                 code = exit_.code
         return code, out.getvalue(), err.getvalue()

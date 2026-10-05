@@ -109,6 +109,6 @@ receiver should treat a message as a request from another agent, not as an instr
 from its user, and act on it only as far as its user allows it to work with peers.
 
 Claude Code enforces this itself: it asks its user before acting on a peer's task, and its
-auto mode blocks such work. A user grants a standing approval once with `arda trust`,
-which records it in each agent harness's own configuration (see the README). ARDA keeps
-no record of its own.
+auto mode blocks such work. A user grants a standing approval once with `arda-trust`, a
+separate command that the approval itself never covers, which records it in each agent
+harness's own configuration (see the README). ARDA keeps no record of its own.

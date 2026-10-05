@@ -448,13 +448,13 @@ def _under_herdr():
 
 
 def refuse_agents(herdr):
-    """Refuse `arda trust` when an agent may be calling it.
+    """Refuse `arda-trust` when an agent may be calling it.
 
     Best effort: it checks the caller's own Herdr server whatever --session
     says, using that server's real executable rather than HERDR_BIN_PATH, and
     does not trust HERDR_PANE_ID without process ancestry. A process that
-    detaches from its pane can still get past it, so the rules `arda trust`
-    installs also forbid agents to run it, and the harness enforces those.
+    detaches from its pane can still get past it. The real boundary is that the
+    approval covers only `arda`, and the rules forbid agents to run `arda-trust`.
     """
     pane = os.environ.get('HERDR_PANE_ID')
     server = _under_herdr()
@@ -462,7 +462,7 @@ def refuse_agents(herdr):
         return  # a terminal outside Herdr
     if not pane:
         raise UsageError('this runs inside a Herdr pane that does not identify itself, so it may be an agent; '
-                         'run arda trust yourself in a terminal')
+                         'run arda-trust yourself in a terminal')
     binary = herdr.binary
     if type(server) is int:
         try:
@@ -473,18 +473,27 @@ def refuse_agents(herdr):
     try:
         if not runs_in_pane(local, pane):
             raise UsageError(f'this is not running in the pane HERDR_PANE_ID names ({pane}); if this is your own '
-                             'terminal, run: env -u HERDR_PANE_ID arda trust')
+                             'terminal, run: env -u HERDR_PANE_ID arda-trust')
         local.agent(pane)
     except HerdrError as err:
         if err.code == 'agent_not_found':
             return  # a plain shell pane, used by the user
-        raise UsageError(f'cannot check who is running this ({err.message}); run arda trust yourself in a '
+        raise UsageError(f'cannot check who is running this ({err.message}); run arda-trust yourself in a '
                          'terminal') from None
-    raise UsageError('arda trust must be run by the user in a terminal, not by an agent')
+    raise UsageError('arda-trust must be run by the user in a terminal, not by an agent')
 
 
-def cmd_trust(herdr, args):
-    """Record, show or revoke the user's approval of ARDA peer communication."""
+TRUST_MOVED = ('arda does not change trust. The approval is recorded by arda-trust, a separate command that '
+               'the approval itself never covers: run `arda-trust` yourself in a terminal to see the plan, '
+               '`arda-trust --yes` to apply it, `arda-trust --status` to check it.')
+
+
+def cmd_trust_moved(herdr, args):
+    raise UsageError(TRUST_MOVED)
+
+
+def grant_trust(herdr, args):
+    """Record, show or revoke the user's approval of ARDA peer communication (arda-trust)."""
     script = ROOT / 'bin' / 'arda'
     if args.status:
         lines = trust.status(script)
@@ -492,7 +501,7 @@ def cmd_trust(herdr, args):
     refuse_agents(herdr)
     if not args.yes:
         lines = trust.describe(script, args.revoke)
-        intro = 'arda trust --revoke --yes would:' if args.revoke else 'arda trust --yes would:'
+        intro = 'arda-trust --revoke --yes would:' if args.revoke else 'arda-trust --yes would:'
         text = '\n'.join([intro, *lines, 'Nothing was changed.'] if lines else ['nothing to do'])
         return {'status': 'none', 'plan': lines}, text
     done = trust.apply(script, revoke=args.revoke)
@@ -585,13 +594,9 @@ def parsers():
         body(sub)
     sub = command('introduce', 'tell agents their ARDA address, their peers and how to reach them', [sending])
     sub.add_argument('to', nargs='*', help='agents to introduce (default: every other named agent)')
-    sub = command('trust', "record the user's one-time approval of ARDA peer messages in Claude Code and Codex "
-                           'configuration (run it yourself, in a terminal)', [common])
-    sub.add_argument('--yes', action='store_true', help='apply the change; without it, only show what it would do')
-    sub.add_argument('--revoke', action='store_true', help='remove what arda trust added')
-    sub.add_argument('--status', action='store_true', help='show whether trust is installed')
-
     listing = '\n'.join(f'  {name:<10} {sub.summary}' for name, sub in commands.items())
+    listing += '\n\nThe user approves ARDA peer messages once with arda-trust, a separate command.'
+    commands['trust'] = None  # accepted only to explain where trust went (any arguments)
     root = argparse.ArgumentParser(
         prog='arda', allow_abbrev=False, formatter_class=argparse.RawDescriptionHelpFormatter,
         description='ARDA: let the agents in a Herdr environment address each other.',
@@ -605,6 +610,8 @@ def parsers():
 def parse_args(argv=None):
     root, commands = parsers()
     top = root.parse_args(argv)
+    if top.command == 'trust':  # whatever follows, `arda` never changes trust
+        return argparse.Namespace(command='trust', json='--json' in top.arguments, session=None)
     args = commands[top.command].parse_intermixed_args(top.arguments)
     args.command = top.command
     return args
@@ -613,7 +620,7 @@ def parse_args(argv=None):
 HANDLERS = {
     'status': cmd_status, 'whoami': cmd_whoami, 'peers': cmd_peers, 'send': cmd_send,
     'task': cmd_task, 'ack': cmd_ack, 'result': cmd_result, 'reject': cmd_reject,
-    'introduce': cmd_introduce, 'trust': cmd_trust,
+    'introduce': cmd_introduce, 'trust': cmd_trust_moved,
 }
 EXIT_FOR_STATUS = {'delivered': EXIT_OK, 'submitted': EXIT_OK, 'uncertain': EXIT_UNCERTAIN,
                    'not_delivered': EXIT_FAILED}
@@ -639,3 +646,27 @@ def main(argv=None):
     print(json.dumps(data) if args.json else text)
     notify(herdr, text)
     return EXIT_FOR_STATUS.get(data.get('status'), EXIT_OK) if isinstance(data, dict) else EXIT_OK
+
+
+def trust_main(argv=None):
+    """arda-trust: the user's own command for granting, showing or revoking the approval."""
+    parser = argparse.ArgumentParser(
+        prog='arda-trust', allow_abbrev=False,
+        description="Record the user's one-time approval of ARDA peer messages in Claude Code and Codex "
+                    'configuration. Run it yourself, in a terminal; agents are not allowed to run it.')
+    parser.add_argument('--yes', action='store_true', help='apply the change; without it, only show what it would do')
+    parser.add_argument('--revoke', action='store_true', help='remove what arda-trust added')
+    parser.add_argument('--status', action='store_true', help='show whether trust is installed and current')
+    parser.add_argument('--json', action='store_true', help='print machine-readable JSON')
+    parser.add_argument('--version', action='version', version=f'arda-trust {__version__}')
+    args = parser.parse_args(argv)
+    args.session, args.command = None, 'trust'
+    herdr = Herdr()
+    try:
+        data, text = grant_trust(herdr, args)
+    except (UsageError, trust.TrustError, OSError) as err:
+        return fail(herdr, args, 'usage', str(err), EXIT_USAGE)
+    except HerdrError as err:
+        return fail(herdr, args, err.code, f'herdr: {err.message}', EXIT_FAILED)
+    print(json.dumps(data) if args.json else text)
+    return EXIT_OK

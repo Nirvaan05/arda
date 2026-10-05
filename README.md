@@ -43,15 +43,15 @@ You need Linux, Python 3.11 or later, Herdr 0.9.3 or later, and agents running i
 panes. On every machine whose agents should take part:
 
 ```sh
-# 1. Install the plugin and put `arda` on PATH
+# 1. Install the plugin and put `arda` and `arda-trust` on PATH
 herdr plugin install Nirvaan05/arda
 root=$(herdr plugin list --plugin arda --json |
   python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["plugins"][0]["plugin_root"])')
-ln -s "$root/bin/arda" ~/.local/bin/arda
+ln -s "$root/bin/arda" "$root/bin/arda-trust" ~/.local/bin/
 
 # 2. Approve ARDA peer messages once. Run this yourself, not through an agent.
-arda trust          # shows what it would change
-arda trust --yes    # applies it
+arda-trust          # shows what it would change
+arda-trust --yes    # applies it
 
 # 3. Start named agents, then introduce them to each other
 herdr agent start claude --kind claude --pane <pane>
@@ -62,7 +62,7 @@ herdr plugin action invoke introduce --plugin arda
 Then ask Claude something like *"Ask Codex to review the last commit."*
 
 To update, run `herdr plugin install Nirvaan05/arda` again (Herdr has no separate update
-command), then `arda trust --status`. Herdr keeps an installed plugin at a fixed path, so
+command), then `arda-trust --status`. Herdr keeps an installed plugin at a fixed path, so
 the link survives updates.
 
 ## What ARDA changes on your machine
@@ -71,13 +71,14 @@ the link survives updates.
 | --- | --- | --- |
 | Herdr's plugin registry | The `arda` plugin, with two actions: status and introduce | `herdr plugin uninstall arda` |
 | `~/.local/bin/arda` | A link to the plugin's `bin/arda` | Delete the link |
-| `$CLAUDE_CONFIG_DIR/rules/arda.md` | Rules for Claude Code: ARDA messages come from peer agents, may be answered without asking you each time, and risky requests must be rejected | `arda trust --revoke --yes` |
-| `$CLAUDE_CONFIG_DIR/settings.json` | `permissions.allow`: `Bash(arda *)`; `permissions.deny`: `Bash(arda trust)` and `Bash(arda trust *)`; each also for the full path of `bin/arda` | `arda trust --revoke --yes` |
-| `$CODEX_HOME/AGENTS.md` | A marked section with the same rules for Codex | `arda trust --revoke --yes` |
-| `$CODEX_HOME/rules/arda.rules` | Lets the `arda` command, and nothing else, run outside Codex's sandbox; forbids `arda trust` | `arda trust --revoke --yes` |
+| `$CLAUDE_CONFIG_DIR/rules/arda.md` | Rules for Claude Code: ARDA messages come from peer agents, may be answered without asking you each time, and risky requests must be rejected | `arda-trust --revoke --yes` |
+| `$CLAUDE_CONFIG_DIR/settings.json` | `permissions.allow`: `Bash(arda *)`; `permissions.deny`: `Bash(arda-trust)` and `Bash(arda-trust *)`; each also for the full path of the script | `arda-trust --revoke --yes` |
+| `$CODEX_HOME/AGENTS.md` | A marked section with the same rules for Codex | `arda-trust --revoke --yes` |
+| `$CODEX_HOME/rules/arda.rules` | Lets the `arda` command, and nothing else, run outside Codex's sandbox; forbids `arda-trust` | `arda-trust --revoke --yes` |
 
 Nothing else is changed. ARDA runs no service and keeps no files of its own.
-`arda trust --status` shows what is installed and whether it is current.
+`arda-trust --status` shows what is installed and whether it is current, including rules an older
+version installed as `arda trust`; `arda-trust --yes` upgrades them.
 
 ## Security
 
@@ -90,15 +91,18 @@ ARDA is a convenience layer, not a security boundary.
   exactly that, and to reject anything risky. A message can still carry prompt injection
   from wherever its sender read it. ARDA removes terminal control characters and quotes
   every line of a message, but the receiving agent decides what to do.
-- **`arda trust` widens what agents can do.** Agents may act on peer messages without
+- **The approval widens what agents can do.** Agents may act on peer messages without
   asking you, and Codex may run `arda` outside its sandbox. A trusted agent can therefore
   send whatever it can read to any agent in your Herdr environment, including on other
   machines. Each harness's own permission prompts and sandbox still govern what the
   receiver does. Grant trust only where every agent may work for every other.
-- **The guards are best effort.** `arda trust` refuses to run from an agent's pane, and the
-  installed rules forbid agents to run it, but run it yourself and check
-  `arda trust --status`. `--file` reads only from the working directory or the temporary
-  directory, which keeps accidents small but is not a boundary against a determined agent.
+- **Only you can extend the approval.** It allows the `arda` command, which has no way to
+  change trust. Trust is changed only by `arda-trust`, a separate command the approval does
+  not cover: Claude Code's deny rules and a Codex forbidden rule keep agents from running it,
+  and it also refuses when it detects an agent's pane (a best-effort extra check). Run it
+  yourself and check `arda-trust --status`. `--file` reads only from the working directory or
+  the temporary directory, which keeps accidents small but is not a boundary against a
+  determined agent.
 - **Delivery is at most once,** with no retry, queue, replay protection or completion
   guarantee.
 
@@ -114,7 +118,7 @@ ARDA is a convenience layer, not a security boundary.
 | `arda result @name <id> -- 'text'` | Return the outcome of a task. |
 | `arda reject @name <id> -- 'reason'` | Decline a task, or report that it failed. |
 | `arda introduce [@name ...]` | Introduce ARDA to agents. Busy agents are skipped. |
-| `arda trust` | Approve ARDA peer messages once (see above). |
+| `arda-trust` | Approve ARDA peer messages once; a separate command you run yourself (see above). |
 | `arda status` | Plugin and protocol version. |
 
 Put `--` before message text and single quotes around it, so it is never read as an
@@ -185,7 +189,7 @@ session there, save it as another machine:
 ## FAQ
 
 **How do I make Claude Code and Codex talk to each other?**
-Run both in Herdr panes with names, install ARDA, run `arda trust --yes` once and invoke
+Run both in Herdr panes with names, install ARDA, run `arda-trust --yes` once and invoke
 the introduce action. Then ask one of them to involve the other; it uses
 `arda task @name`, and the answer comes back as a prompt.
 
@@ -213,7 +217,7 @@ Claude Code and Codex are tested. Herdr types prompts only into agent kinds it s
 - **Codex: background server.** When Codex uses its shared background server, its shell
   commands run outside the Herdr pane, so ARDA cannot tell who is calling; it refuses to
   send and says so. Start Codex with `--no-daemon`.
-- **Codex: sandbox.** Codex's workspace sandbox blocks the Herdr socket. `arda trust`
+- **Codex: sandbox.** Codex's workspace sandbox blocks the Herdr socket. `arda-trust`
   allows the `arda` command; otherwise approve it when Codex asks.
 - **Restarts.** Herdr restores the pane layout after a server restart. It relaunches agents
   and restores their names only when Herdr's official integration for that agent is

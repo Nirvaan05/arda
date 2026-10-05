@@ -1,0 +1,6 @@
+#!/bin/sh
+# The user's own command for approving ARDA peer messages (see `arda-trust --help`).
+# It is separate from `arda` so that the approval, which allows `arda`, never covers it.
+# Run from the plugin root like bin/arda; -P keeps the caller's directory off sys.path.
+root=$(dirname -- "$(dirname -- "$(readlink -f -- "$0")")")
+exec python3 -P -c 'import sys; sys.path.insert(0, sys.argv.pop(1)); from arda.cli import trust_main; raise SystemExit(trust_main())' "$root" "$@"
