@@ -128,14 +128,18 @@ def claude_permissions(script):
             'deny': [rule for name in trusts for rule in (f'Bash({name})', f'Bash({name} *)')]}
 
 
-# Every Claude Code rule shape any ARDA version wrote, for any install root: the bare commands, or
-# a full path ending in bin/arda or bin/arda-trust, optionally with ` trust` and ` *`. Grant
-# removes those it does not want now (an older version, a moved install); revoke removes all.
-_OURS = re.compile(r'Bash\((?:arda|arda-trust|/\S*/bin/arda|/\S*/bin/arda-trust)(?: trust)?(?: \*)?\)')
+# Every Claude Code rule shape any ARDA version wrote, by list, for any install root (paths may
+# contain spaces): allow `arda *`; deny `arda trust`, `arda trust *` (before arda-trust existed),
+# `arda-trust`, `arda-trust *`. Grant removes the ones it does not want now (an older version, a
+# moved install); revoke removes all. Other rules, even similar ones, are the user's.
+_ARDA = r'(?:arda|/.+/bin/arda)'
+_TRUST = r'(?:arda-trust|/.+/bin/arda-trust)'
+_OURS = {'allow': re.compile(rf'Bash\({_ARDA} \*\)'),
+         'deny': re.compile(rf'Bash\((?:{_ARDA} trust(?: \*)?|{_TRUST}(?: \*)?)\)')}
 
 
-def ours(rule):
-    return isinstance(rule, str) and bool(_OURS.fullmatch(rule))
+def ours(rule, kind):
+    return isinstance(rule, str) and bool(_OURS[kind].fullmatch(rule))
 
 
 def plan(script):
@@ -176,7 +180,7 @@ def status(script):
             present = all(rule in permissions.get(kind, []) for kind, rules in step['rules'].items()
                           for rule in rules)
             stale = [rule for kind in ('allow', 'deny') for rule in permissions.get(kind, [])
-                     if ours(rule) and rule not in step['rules'].get(kind, [])]
+                     if ours(rule, kind) and rule not in step['rules'].get(kind, [])]
             state = 'allowed' if present else 'not allowed (run arda-trust --yes)'
             if stale:
                 state += f'; rules for another ARDA install or version: {", ".join(stale)} (run arda-trust --yes)'
@@ -260,7 +264,7 @@ def apply(script, revoke=False):
         for kind in ('allow', 'deny'):
             current = permissions.get(kind, [])
             wanted = [] if revoke else step['rules'].get(kind, [])
-            kept = [rule for rule in current if not ours(rule) or rule in wanted]
+            kept = [rule for rule in current if not ours(rule, kind) or rule in wanted]
             new = kept + [rule for rule in wanted if rule not in kept]
             if new != current:
                 changed.append(kind)

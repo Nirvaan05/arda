@@ -278,6 +278,13 @@ class CliTests(CliCase):
             os.chdir(old_cwd)
         self.assertEqual(self.prompts(), [])
 
+    def test_an_oversized_file_is_refused_not_truncated(self):
+        big = Path(self.tmp.name) / 'big.txt'
+        big.write_text('x' + ' ' * (4 * MAX_BODY) + 'TAIL')  # padding that cleaning would strip
+        code, _, err = self.run_cli('send', '@codex', '--file', str(big))
+        self.assertEqual((code, self.prompts()), (2, []))
+        self.assertIn('nothing was sent', err)
+
     def test_a_fifo_is_refused_without_blocking(self):
         fifo = Path(self.tmp.name) / 'pipe'
         os.mkfifo(fifo)

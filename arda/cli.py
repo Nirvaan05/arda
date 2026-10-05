@@ -1,6 +1,7 @@
 """ARDA command line, run by an agent inside its Herdr pane to reach its peers."""
 
 import argparse
+import dataclasses
 import json
 import os
 import pwd
@@ -164,6 +165,9 @@ def deliver(place, route, message, force=False, skip_busy=False, expect=None):
         return outcome(message, 'not_delivered', f'{to} changed after it was found ({", ".join(changed)} differs): '
                                                  'it is not the agent this message is meant for; nothing was sent',
                        place, pane)
+    if agent.get('name') and address(agent['name']) != message.recipient:  # renamed since the lookup
+        message = dataclasses.replace(message, recipient=address(agent['name']))
+        to = message.recipient if place.current else f'{message.recipient}@{place.name}'
     if state == 'blocked':
         return outcome(message, 'not_delivered', f'{to} is waiting at an approval or question prompt; '
                                                  'ARDA does not type into it. Try again once it is unblocked.',
@@ -241,14 +245,16 @@ def read_file(path):
     except OSError as err:
         raise UsageError(f'cannot open --file {path}: {err.strerror}') from None
     try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
             raise UsageError(f'--file must be a regular file: {path}')
         check_file_path(os.readlink(f'/proc/self/fd/{fd}'), path)
+        limit = 4 * MAX_BODY  # room for characters cleaning removes; the body limit is checked after
         data = b''
         while chunk := os.read(fd, 65536):
             data += chunk
-            if len(data) > 4 * MAX_BODY:
-                break  # read_body reports the size
+            if len(data) > limit:
+                raise UsageError(f'--file is larger than {limit} bytes; nothing was sent. Send its path instead.')
         return data.decode()
     finally:
         os.close(fd)
@@ -271,6 +277,16 @@ def read_body(text, path):
     return text
 
 
+def expectation(to, agent):
+    """What must still be true of a resolved agent when it is read again right before typing."""
+    if to.native:
+        return {'agent_session': agent.get('agent_session')}  # the full reference, whatever its name is now
+    expect = {'name': agent.get('name')}
+    if to.fingerprint:
+        expect['fingerprint'] = to.fingerprint
+    return expect
+
+
 def send(herdr, args, kind, re=None):
     me = require_identity(herdr)
     to = parse_address(args.to)
@@ -290,7 +306,8 @@ def send(herdr, args, kind, re=None):
         result['resolution'] = resolution(places, rule, needed, err.matches, permitted=False, needs_catalogs=unbound)
         return result
     name = agent.get('name') if agent else None
-    if place.current and (agent and agent.get('pane_id') == me['pane_id'] or to.route in (me['name'], me['pane_id'])):
+    target_pane = agent.get('pane_id') if agent else to.route  # a pane address is its own route
+    if place.current and target_pane == me['pane_id']:
         raise UsageError('cannot send an ARDA message to yourself')
     if not place.current and not me['name']:
         raise UsageError('you have no Herdr agent name, and a pane ID means nothing in another place, so '
@@ -298,12 +315,7 @@ def send(herdr, args, kind, re=None):
                          f'{me["pane_id"]} <name>)')
     # Address the message to the agent's current name: a native address follows it across renames.
     message = Message(type=kind, sender=me['address'], recipient=address(name or to.route), body=body, re=re)
-    route, expect = to.route, None
-    if agent:
-        route = agent['pane_id']
-        expect = {'agent_session': agent.get('agent_session')} if to.native else {'name': name}
-        if to.fingerprint and not to.native:
-            expect['fingerprint'] = to.fingerprint
+    route, expect = (agent['pane_id'], expectation(to, agent)) if agent else (to.route, None)
     result = deliver(place, route, message, force=getattr(args, 'force', False), expect=expect)
     if to.native and name and name != to.route:
         result['requested'] = str(to)
@@ -445,13 +457,14 @@ def cmd_introduce(herdr, args):
                 unresolved.append({'status': 'not_delivered', 'type': 'note', 'to': str(to),
                                    'detail': 'introductions go to named agents'})
                 continue
-            if (place.name, agent['pane_id']) not in [(p.name, pane) for p, _, pane in recipients]:
-                recipients.append((place, agent['name'], agent['pane_id']))
+            if (place.name, agent['pane_id']) not in [(p.name, pane) for p, _, pane, _ in recipients]:
+                recipients.append((place, agent['name'], agent['pane_id'], expectation(to, agent)))
     else:
         by_name = {place.name: place for place in places}
-        recipients = [(by_name[peer['place']], peer['name'], peer['pane_id']) for peer in named if not peer['you']]
+        recipients = [(by_name[peer['place']], peer['name'], peer['pane_id'], {'name': peer['name']})
+                      for peer in named if not peer['you']]
     notes = []
-    for place, name, pane in recipients:
+    for place, name, pane, expect in recipients:
         if place.current and me and name in (me['name'], me['pane_id']):
             continue
         others = [f'{peer["address"]} ({peer["agent"] or "?"} on {peer["machine"]})' for peer in named
@@ -459,12 +472,12 @@ def cmd_introduce(herdr, args):
         body = INTRODUCTION.format(me=address(name), peers=', '.join(others) or 'none yet',
                                    cmd=command() if place.kind == 'session' else 'arda')
         message = Message(type='note', sender=me['address'] if me else SYSTEM, recipient=address(name), body=body)
-        notes.append((place, name, pane, message))
+        notes.append((place, name, pane, expect, message))
 
     def introduce(note):
-        place, name, pane, message = note
+        place, _, pane, expect, message = note
         try:
-            return deliver(place, pane, message, force=args.force, skip_busy=True, expect={'name': name})
+            return deliver(place, pane, message, force=args.force, skip_busy=True, expect=expect)
         except HerdrError as err:  # raised before anything was typed for this recipient
             return outcome(message, 'not_delivered', f'herdr: {err.message}', place)
     # Each delivery waits to see its receiver start, so deliver at once; but one at a time

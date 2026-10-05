@@ -95,3 +95,28 @@ class IdentityTests(CliCase):
         code, out, _ = self.run_cli('result', '@claude.aaaa1111', 'abc123', '--json', '--', 'done')
         self.assertEqual((code, self.prompts()), (1, []))
         self.assertIn('the agent in that terminal is now @lead.aaaa1111@main', json.loads(out)['detail'])
+
+    def test_a_native_reply_is_not_mistaken_for_a_message_to_yourself(self):
+        # the replier now carries the name the sender had when it asked
+        self.world(agent('lead', 'w1:p2'), [agent('helper', 'w1:p1', agent_session=LEAD)])
+        self.env['HERDR_PANE_ID'] = 'w1:p2'
+        self.set_agents(agent('claude', 'w1:p2'), agent('helper', 'w1:p1', agent_session=LEAD),
+                        sessions=sessions('main'), machines={})
+        code, out, _ = self.run_cli('result', f'@claude.{TOKEN}', 'abc123', '--json', '--', 'done')
+        self.assertEqual((code, json.loads(out)['to']), (0, '@helper'))
+
+    def test_a_rename_between_lookup_and_typing_is_addressed_by_the_new_name(self):
+        lead = agent('lead', 'w1:p1', agent_session=LEAD, listed={'name': 'claude'})
+        self.world(agent('helper', 'w1:p2'), [lead])
+        self.env['HERDR_PANE_ID'] = 'w1:p2'
+        code, out, _ = self.run_cli('result', f'@claude.{TOKEN}', 'abc123', '--json', '--', 'done')
+        self.assertEqual((code, json.loads(out)['to']), (0, '@lead'))
+        self.assertEqual(parse(self.prompts()[-1]['text']).recipient, '@lead')
+
+    def test_introducing_a_native_address_keeps_its_identity(self):
+        other = session('99999999-2222-4333-8444-555555555555')
+        lead = agent('lead', 'w1:p1', agent_session=other, listed={'agent_session': LEAD})  # replaced since
+        self.world(agent('helper', 'w1:p2'), [lead])
+        self.env['HERDR_PANE_ID'] = 'w1:p2'
+        self.run_cli('introduce', f'@lead.{TOKEN}', '--json')
+        self.assertEqual(self.prompts(), [])

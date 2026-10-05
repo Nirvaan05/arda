@@ -183,6 +183,18 @@ class TrustTests(CliCase):
         self.assertEqual(self.settings(), {'permissions': {'allow': ['Bash(ls)', 'Bash(ardavark *)'],
                                                            'deny': ['Bash(rm *)']}})
 
+    def test_only_rule_shapes_arda_wrote_are_touched(self):
+        spaced = 'Bash(/old root/bin/arda *)'
+        (self.claude / 'settings.json').write_text(json.dumps({'permissions': {
+            'allow': [spaced, 'Bash(ls)'], 'deny': ['Bash(arda *)', 'Bash(/old root/bin/arda trust *)']}}))
+        self.assertEqual(self.run_trust('--yes')[0], 0)
+        permissions = self.settings()['permissions']
+        self.assertNotIn(spaced, permissions['allow'])                    # an old root with a space
+        self.assertNotIn('Bash(/old root/bin/arda trust *)', permissions['deny'])
+        self.assertIn('Bash(arda *)', permissions['deny'])                 # the user's own deny: never ARDA's
+        self.assertEqual(self.run_trust('--revoke', '--yes')[0], 0)
+        self.assertEqual(self.settings(), {'permissions': {'allow': ['Bash(ls)'], 'deny': ['Bash(arda *)']}})
+
     def test_consent_follows_the_instruction_file_codex_reads(self):
         agents, override = self.codex / 'AGENTS.md', self.codex / 'AGENTS.override.md'
         self.assertEqual(self.run_trust('--yes')[0], 0)
