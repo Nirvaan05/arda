@@ -1,5 +1,6 @@
 import json
 import time
+from pathlib import Path
 from unittest import mock
 
 from test_cli import CliCase, agent
@@ -97,6 +98,91 @@ class PlacesTests(CliCase):
         self.assertEqual([c[2:4] for c in self.calls() if c[:2] == ['--machine', 'd1']][2:],
                          [['agent', 'list'], ['agent', 'get'], ['agent', 'prompt']])
 
+    def test_machine_failures_say_what_went_wrong(self):
+        self.environment(machines={
+            'n1': {'label': 'stopped', 'fail': {'*': 'remote SSH connection failed: failed to connect to remote '
+                                                     'Herdr API socket /run/h.sock: No such file or directory'}},
+            'a1': {'label': 'locked', 'fail': {'*': 'remote SSH connection failed: me@a1: Permission denied '
+                                                     '(publickey).'}},
+            'p1': {'label': 'old', 'error': 'protocol_mismatch'}})
+        text = self.run_cli('peers')[1]
+        self.assertIn('stopped: saved machine stopped, Herdr session default: unreachable (server_not_running: '
+                      'saved machine stopped is reachable, but its Herdr session is not running', text)
+        self.assertIn('(machine_auth: saved machine locked refused the SSH login; run `herdr machine reconnect '
+                      'locked`', text)
+        self.assertIn('old: saved machine old, Herdr session default: unreachable (protocol_mismatch', text)
+
+    def test_a_connection_lost_during_a_prompt_is_uncertain_and_a_refused_login_sent_nothing(self):
+        lost = 'remote SSH connection failed: Connection to d1 closed by remote host.'
+        self.environment(machines={'d1': {'label': 'desktop', 'agents': [agent('codex', 'w1:p1')],
+                                          'fail': {'agent prompt': lost}}})
+        code, out, _ = self.run_cli('send', '@codex', '--json', '--', 'hi')
+        self.assertEqual((code, json.loads(out)['status']), (3, 'uncertain'))
+        self.environment(machines={'d1': {'label': 'desktop', 'agents': [agent('codex', 'w1:p1')],
+                                          'fail': {'agent prompt': 'remote SSH connection failed: Host key '
+                                                                   'verification failed.'}}})
+        code, out, _ = self.run_cli('send', '@codex', '--json', '--', 'hi')
+        self.assertEqual((code, json.loads(out)['status']), (1, 'not_delivered'))
+        self.assertIn('nothing was sent', json.loads(out)['detail'])
+
+    def test_a_refused_ssh_channel_is_tried_again_only_for_lookups(self):
+        self.environment(machines={'d1': {'label': 'desktop', 'agents': [agent('codex', 'w1:p1')],
+                                          'refuse_once': ['agent list']}})
+        self.assertEqual(self.run_cli('send', '@codex', '--', 'hi')[0], 0)
+        self.assertEqual([c[2:4] for c in self.calls() if c[:2] == ['--machine', 'd1']],
+                         [['agent', 'list'], ['agent', 'list'], ['agent', 'prompt']])
+        self.environment(machines={'d1': {'label': 'desktop', 'agents': [agent('codex', 'w1:p1')],
+                                          'refuse_once': ['agent prompt']}})
+        code, out, _ = self.run_cli('send', '@codex', '--json', '--', 'hi')
+        self.assertEqual((code, json.loads(out)['status'], self.prompts()), (1, 'not_delivered', []))
+
+    def test_two_routes_to_one_server_show_each_agent_once(self):
+        mine = [agent('claude', 'w1:p1', terminal_id='term_0000aaaa1111'),
+                agent('helper', 'w1:p2', terminal_id='term_0000bbbb2222')]
+        self.set_agents(*mine, sessions=sessions('main'),
+                        machines={'l1': {'label': 'loop', 'agents': mine},
+                                  'd1': {'label': 'desktop', 'agents': [mine[1], agent('codex', 'w1:p5')]}})
+        self.assertEqual(self.run_cli('send', '@helper', '--', 'hi')[0], 0)
+        self.assertEqual(self.prompts()[-1]['place'], 'current')
+        data = json.loads(self.run_cli('peers', '--json')[1])
+        self.assertEqual([(p['place'], p['same_as']) for p in data['places']],
+                         [('main', None), ('loop', 'main'), ('desktop', None)])
+        self.assertEqual([p['address'] for p in data['peers']], ['@claude', '@helper', '@codex'])
+        self.assertIn('loop: saved machine loop, Herdr session default: the same Herdr server as main',
+                      self.run_cli('peers')[1])
+
+    def test_a_name_matched_while_a_machine_did_not_answer_says_so(self):
+        code, out, _ = self.run_cli('send', '@codex', '--json', '--', 'hi')
+        result = json.loads(out)
+        self.assertEqual((code, result['status'], result['unchecked']), (0, 'delivered', ['gpu']))
+        self.assertIn('Not checked: gpu did not answer', result['detail'])
+        self.env['HERDR_PANE_ID'] = 'w1:p2'
+        result = json.loads(self.run_cli('result', '@claude.aaaa1111', 'abc123', '--json', '--', 'done')[1])
+        self.assertNotIn('unchecked', result)
+
+    def test_a_timed_out_lookup_leaves_no_process_behind(self):
+        marker = Path(self.tmp.name) / 'child.pid'
+        self.environment(machines={'h1': {'label': 'slow', 'hang': 30, 'hang_child': str(marker)}})
+        with mock.patch('arda.herdr.MACHINE_TIMEOUT', 1):
+            self.assertEqual(self.run_cli('send', '@helper', '--', 'hi')[0], 0)
+        pid = int(marker.read_text())
+        for _ in range(30):
+            try:
+                if Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[0] == 'Z':
+                    break  # killed, waiting to be reaped
+            except FileNotFoundError:
+                break
+            time.sleep(0.1)
+        else:
+            self.fail(f'process {pid} started by the timed-out herdr is still running')
+
+    def test_introductions_reach_every_agent_on_one_machine(self):
+        self.environment(machines={'d1': {'label': 'desktop', 'agents': [agent('codex', 'w1:p1'),
+                                                                          agent('reviewer', 'w1:p2')]}})
+        code, _, _ = self.run_cli('introduce', '--json', env={'HERDR_PLUGIN_ID': 'arda'})
+        self.assertEqual(code, 0)
+        self.assertEqual(sorted(p['target'] for p in self.prompts() if p['place'] == 'd1'), ['codex', 'reviewer'])
+
     def test_unreachable_places_fail_clearly_and_send_nothing(self):
         code, out, _ = self.run_cli('send', '@codex@gpu', '--json', '--', 'hi')
         self.assertEqual((code, json.loads(out)['status']), (1, 'not_delivered'))
@@ -148,7 +234,7 @@ class PlacesTests(CliCase):
     def test_a_hung_machine_cannot_stall_a_send_for_long(self):
         self.environment(machines={'h1': {'label': 'slow', 'hang': 30, 'agents': []}})
         started = time.time()
-        with mock.patch('arda.herdr.LOOKUP_TIMEOUT', 1):
+        with mock.patch('arda.herdr.MACHINE_TIMEOUT', 1):
             code, out, _ = self.run_cli('send', '@helper', '--json', '--', 'hi')
         self.assertLess(time.time() - started, 10)
         self.assertEqual((code, json.loads(out)['status']), (0, 'delivered'))

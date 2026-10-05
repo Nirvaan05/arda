@@ -35,6 +35,7 @@ class Place:
     error: str | None = None
     failure: HerdrError | None = None
     listed_at: float | None = None
+    alias_of: str | None = None   # another place that reaches the same Herdr server
 
     @property
     def reachable(self):
@@ -131,6 +132,27 @@ def survey(places):
     return places
 
 
+def dedupe(places):
+    """Keep each agent once when two places reach the same Herdr server.
+
+    A saved machine can point back at this machine, or two saved machines at one
+    server. Herdr terminal IDs belong to one server's terminals, so an ID seen in two
+    places is one agent, kept in the earlier place, the cheaper route to it. A place
+    whose agents all appeared in one earlier place is marked as that place's alias.
+    """
+    seen = {}
+    for place in places:
+        ids = [agent.get('terminal_id') for agent in place.agents]
+        earlier = {seen.get(tid) for tid in ids}
+        if ids and None not in earlier and len(earlier) == 1:
+            place.alias_of = earlier.pop()
+        place.agents = [agent for agent, tid in zip(place.agents, ids, strict=True) if not tid or tid not in seen]
+        for tid in ids:
+            if tid:
+                seen.setdefault(tid, place.name)
+    return places
+
+
 class Unresolved(Exception):
     pass
 
@@ -163,7 +185,9 @@ def resolve(address, places):
     if address.fingerprint:
         tiers = [[p for p in candidates if p.kind == 'session'], [p for p in candidates if p.kind != 'session']]
     for tier in tiers:
-        survey([p for p in tier if not p.agents and p.error is None])
+        survey([p for p in tier if not p.agents and p.error is None and p.alias_of is None])
+        if len(candidates) > 1:
+            dedupe(candidates)
         matches = [(p, a) for p in candidates for a in p.agents if a.get('name') == address.name]
         if address.fingerprint:
             matches = [(p, a) for p, a in matches if fingerprint(a.get('terminal_id')) == address.fingerprint]

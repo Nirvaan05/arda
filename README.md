@@ -63,6 +63,17 @@ gpu: saved machine gpu, Herdr session default: unreachable (machine_unreachable:
   without a Herdr name can only message agents in its own place, since a pane ID would
   point at the wrong pane anywhere else.
 
+- If two places reach the same Herdr server, such as a saved machine that points back at
+  this one, ARDA lists its agents once, in the nearer place, and `arda peers` marks the
+  other as the same server.
+- A place that does not answer is shown with the reason: the machine cannot be reached,
+  its Herdr session is not running, it refused the SSH login (`herdr machine reconnect`),
+  or its Herdr version does not match. A name found once while another place did not
+  answer is still sent, and the result names the places that were not checked.
+- A saved machine reaches one Herdr session on its host. To include another session
+  there, save it as another machine:
+  `herdr machine add HOST --remote-session NAME --label NAME`.
+
 For two machines to talk both ways, each must be able to reach the other through Herdr.
 Each machine needs a saved Herdr machine for the other, and ARDA installed with `arda` on
 its PATH. Herdr gives a remote server no route back to the caller, so a machine that
@@ -184,8 +195,10 @@ actions, commands also show their result as a Herdr notification.
 - A message addressed by name asks every reachable place for its agents, in parallel,
   because the name must be unique among them: one Herdr round trip per saved machine,
   plus the prompt itself. A reply names the exact agent that asked, so it asks saved
-  machines only when that agent is not on this machine. Each lookup gives up after 10
-  seconds, so one machine that hangs slows a send down but cannot stall it. Herdr shares
+  machines only when that agent is not on this machine. A lookup gives up after 5 seconds
+  on this machine and 15 on a saved machine (longer than Herdr's own 10-second SSH
+  timeout, so Herdr's reason is reported), and stops the `ssh` it started, so one machine
+  that hangs slows a send down but cannot stall it. Herdr shares
   one SSH connection per saved machine by default (`[remote] manage_ssh_config`); with
   that turned off, every lookup on a saved machine is a full SSH handshake.
 - Nothing is stored. If a message cannot be delivered, ARDA reports it and does not

@@ -24,7 +24,7 @@ from .envelope import (
     parse_address,
 )
 from .herdr import Herdr, HerdrError
-from .topology import Unresolved, discover, resolve, survey
+from .topology import Unresolved, dedupe, discover, resolve, survey
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIRM_MS = 15000
@@ -35,6 +35,9 @@ EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_UNCERTAIN = 0, 1, 2, 3
 # queue_agent_prompt), with a hint for the sender.
 NOTHING_SENT = {
     'machine_unreachable': '',
+    'machine_auth': '',
+    'server_not_running': '',
+    'channel_refused': '',
     'agent_blocked': 'the agent is at an approval or question prompt. ',
     'agent_not_ready': 'Herdr only prompts a recognised agent running in its pane. ',
     'agent_target_ambiguous': '',
@@ -252,7 +255,14 @@ def send(herdr, args, kind, re=None):
         raise UsageError('you have no Herdr agent name, and a pane ID means nothing in another place, so '
                          f'{place.name} could not reply; name this agent first (herdr agent rename '
                          f'{me["pane_id"]} <name>)')
-    return deliver(place, to.route, message, force=getattr(args, 'force', False), fp=to.fingerprint, agent=agent)
+    result = deliver(place, to.route, message, force=getattr(args, 'force', False), fp=to.fingerprint, agent=agent)
+    # A bare name was matched once among the places that answered; say which did not.
+    unchecked = [p.name for p in places if not p.reachable] if to.name and not (to.place or to.fingerprint) else []
+    if unchecked and result['status'] != 'not_delivered':
+        result['unchecked'] = unchecked
+        result['detail'] += (f' Not checked: {", ".join(unchecked)} did not answer, so an agent with the same name '
+                             'there was not ruled out.')
+    return result
 
 
 def summary(result):
@@ -287,7 +297,7 @@ def environment(herdr):
         me = identity(herdr)
     except (UsageError, HerdrError):
         me = None  # listing peers does not need to know who is asking
-    places = survey(discover(herdr))
+    places = dedupe(survey(discover(herdr)))
     if places[0].failure:
         raise places[0].failure  # the caller's own Herdr server cannot be reached
     counts = Counter(agent.get('name') for place in places for agent in place.agents if agent.get('name'))
@@ -313,7 +323,8 @@ def environment(herdr):
 def cmd_peers(herdr, args):
     _, places, peers = environment(herdr)
     data = {'places': [{'place': p.name, 'kind': p.kind, 'machine': p.machine, 'session': p.session,
-                        'current': p.current, 'reachable': p.reachable, 'error': p.error} for p in places],
+                        'current': p.current, 'reachable': p.reachable, 'error': p.error, 'same_as': p.alias_of}
+                       for p in places],
             'peers': peers}
     rows = []
     for place in places:
@@ -322,6 +333,9 @@ def cmd_peers(herdr, args):
         header = f'{place.name}: {where}' + (' (you are here)' if place.current else '')
         if not place.reachable:
             rows.append(f'{header}: unreachable ({place.error})')
+            continue
+        if place.alias_of:
+            rows.append(f'{header}: the same Herdr server as {place.alias_of}; its agents are listed there')
             continue
         rows.append(header)
         here = [peer for peer in peers if peer['place'] == place.name]
@@ -403,10 +417,19 @@ def cmd_introduce(herdr, args):
             return deliver(place, name, message, force=args.force, skip_busy=True, agent=agent)
         except HerdrError as err:  # raised before anything was typed for this recipient
             return outcome(message, 'not_delivered', f'herdr: {err.message}', place)
-    # Each delivery waits to see its receiver start, so deliver them all at once, while
-    # the listings that found the receivers are still fresh.
-    with ThreadPoolExecutor(max_workers=max(1, len(notes))) as pool:
-        delivered = list(pool.map(introduce, notes))
+    # Each delivery waits to see its receiver start, so deliver at once, while the listings
+    # that found the receivers are still fresh; but one at a time per saved machine, whose
+    # shared SSH connection allows only so many channels.
+    batches = {}
+    for index, note in enumerate(notes):
+        batches.setdefault(note[0].name if note[0].kind == 'machine' else index, []).append(index)
+    delivered = [None] * len(notes)
+
+    def run(batch):
+        for index in batch:
+            delivered[index] = introduce(notes[index])
+    with ThreadPoolExecutor(max_workers=max(1, len(batches))) as pool:
+        list(pool.map(run, batches.values()))
     results = unresolved + delivered
     lines += [f'{result["status"]}: {result["to"]}: {result["detail"]}' for result in delivered]
     if not results:

@@ -5,7 +5,9 @@ State:
   "sessions": local sessions for `session list --json` (default: one running session "main", the caller's)
   "session_agents": {session name: [agents]} for `--session NAME`
   "machines": {id: {"label", "session", "agents": [...], "down": bool, "enabled": bool}} for `machine list` and
-              `--machine ID`
+              `--machine ID`; a machine can also have "hang" seconds (with "hang_child": a file that gets the
+              pid of a child process it starts first), "error" (a Herdr error code), "fail" ({"agent list" or
+              "*": stderr text}) and "refuse_once" (commands whose first attempt has its SSH channel refused)
   "prompts": every accepted `agent prompt` as {place, target, text, options}
   "notifications", "calls": recorded as well
 Optional "error" fails every call with that code; optional "raw" is printed verbatim instead of a
@@ -50,12 +52,29 @@ def main(argv):
         if machine is None:
             reply(error='machine_not_found')
         if machine.get('hang'):
+            import subprocess
             import time
             lock.close()  # a hung machine must not hold up calls to other places
+            if machine.get('hang_child'):
+                child = subprocess.Popen(['sleep', str(machine['hang'])])
+                with open(machine['hang_child'], 'w') as handle:
+                    handle.write(str(child.pid))
             time.sleep(machine['hang'])
         if machine.get('down'):
             print(f'ssh: connect to host {argv[1]}: Connection refused', file=sys.stderr)
             sys.exit(255)
+        command = ' '.join(argv[2:4])
+        if command in machine.get('refuse_once', []):
+            machine['refuse_once'].remove(command)
+            save(path, state)
+            print('channel 3: open failed: administratively prohibited: open failed', file=sys.stderr)
+            sys.exit(255)
+        if machine.get('error'):
+            reply(error=machine['error'])
+        failure = machine.get('fail', {}).get(command) or machine.get('fail', {}).get('*')
+        if failure:
+            print(failure, file=sys.stderr)
+            sys.exit(1)
         place, argv, agents = argv[1], argv[2:], machine.get('agents', [])
     if state.get('error'):
         reply(error=state['error'])

@@ -32,7 +32,12 @@ message is sent:
 - A fingerprint must match the agent found, or nothing is sent. A fingerprinted address
   names exactly one agent, so it is looked up in this machine's sessions first and in
   saved machines only when it is not found there.
-- A place that does not answer is reported as unreachable. Nothing is sent to it.
+- A place that does not answer is reported as unreachable, with Herdr's reason. Nothing
+  is sent to it. A name found once while another place did not answer is sent, and the
+  result lists the places that were not checked.
+- Two places that reach the same Herdr server show the same terminal IDs. Each agent
+  counts once, in the earlier place (this session, then this machine's other sessions,
+  then saved machines), so a second route never makes a name ambiguous.
 
 Places are relative to the machine that resolves them, so a reply is addressed to the
 sender's name and fingerprint, not to a place. The receiver resolves that against its
@@ -88,7 +93,7 @@ ARDA hands a message to Herdr (`herdr agent prompt`) and reports only what Herdr
 | --- | --- |
 | `delivered` | The receiver was ready, and Herdr saw it working after the text was submitted. |
 | `submitted` | The receiver was busy. Its harness takes queued input at its next step (Claude Code and Codex both do). |
-| `uncertain` | The text may have been submitted, but Herdr could not confirm that the receiver started (stalled, timed out, or the connection failed). It may still act on it. Do not resend blindly. |
+| `uncertain` | The text may have been submitted, but Herdr could not confirm that the receiver started (stalled, timed out, or the connection to a saved machine broke after the text was sent). It may still act on it. Do not resend blindly. |
 | `not_delivered` | Nothing was typed: no such agent, an ambiguous name, a fingerprint that no longer matches, an unreachable place, the agent is blocked at an approval or question prompt, Herdr cannot classify its state (override with `--force`), or, for introductions only, the agent is busy. |
 
 Delivery is not acceptance. Only `ack` means the receiver accepted a task, and only
