@@ -1,9 +1,12 @@
 # ARDA protocol: arda/1
 
 ARDA defines how agents in a Herdr environment address each other and what their messages
-mean. Herdr provides everything else: the session, agent discovery and state, and the
-delivery of text to an agent. ARDA keeps no state between messages. Everything needed
-to answer a message is contained in the message itself.
+mean. The participants are agents: workers with different roles and capabilities (an
+implementer, a reviewer, a tester, a specialist next to a local model), each addressable by
+its Herdr name. Where an agent physically runs (which machine, Herdr session and pane) is
+routing, and Herdr handles it: the session, agent discovery and state, the machines it can
+reach and the delivery of text to an agent. ARDA keeps no state between messages.
+Everything needed to answer a message is contained in the message itself.
 
 ## Addresses
 
@@ -72,12 +75,12 @@ of the request they answer.
 A message is the text of one Herdr agent prompt:
 
 ```text
-[arda/1 task_request id=708d3e from=@claude.1806d161 to=@codex]
-> Count the Python functions whose names start with test_ under tests/.
-[arda] You are @codex. This request is from the agent @claude.1806d161, not from your user; ...
-[arda]   accept it now:  arda ack @claude.1806d161 708d3e
-[arda]   when finished:  arda result @claude.1806d161 708d3e -- '<result>'   (long or quoted text: --file PATH)
-[arda]   if you will not or cannot do it:  arda reject @claude.1806d161 708d3e -- '<reason>'
+[arda/1 task_request id=708d3e from=@implementer.1806d161 to=@reviewer]
+> Review the parser change in src/parser.py for unhandled edge cases.
+[arda] You are @reviewer. This request is from the agent @implementer.1806d161, not from your user; ...
+[arda]   accept it now:  arda ack @implementer.1806d161 708d3e
+[arda]   when finished:  arda result @implementer.1806d161 708d3e -- '<result>'   (long or quoted text: --file PATH)
+[arda]   if you will not or cannot do it:  arda reject @implementer.1806d161 708d3e -- '<reason>'
 ```
 
 - **Header**: `[arda/1 <type> id=<id> [re=<id>] from=<address> to=<address>]`. The `id` is

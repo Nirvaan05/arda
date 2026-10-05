@@ -48,6 +48,8 @@ to a file and pass `--file PATH` instead; refer to other files by path.
   after the dot ties the reply to the agent that asked, even if it was renamed. Names can
   change; if a name is refused, `arda peers` shows the current ones. If you have no name,
   peers can reach you only by pane ID; ask the user before renaming yourself.
+- Hand work to the peer whose role fits it (`arda peers` shows who is there); ARDA does not
+  choose for you. In the task, say what done looks like and what to send back.
 - After `arda task`, do not wait, poll or sleep. The ack and the result arrive as new
   prompts that start with `[arda/1`. Carry on with other work or end your turn.
 - Each ARDA message ends with the exact command to answer it. Answer through ARDA:

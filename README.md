@@ -10,32 +10,79 @@
 [![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen)](#development)
 ![Platform: Linux](https://img.shields.io/badge/platform-linux-lightgrey)
 
-ARDA is a [Herdr](https://herdr.dev) plugin that lets the coding agents in your Herdr
-environment discover each other and hand off work, across sessions and machines. Herdr is
-where your agents live; ARDA is how they reach each other. An agent finds another by name,
-hands it a task with `arda task @name -- '…'`, and the acknowledgement and the result come
-back to it as new prompts. The machines underneath are shared resources, not separate
-worlds, and you stop being the relay between your agents. ARDA is pure Python standard
+AI has made it normal for one team to work with many agents at once. One coding agent
+implements a feature, another reviews it, another runs the tests, another uses a local model
+for heavy analysis. They run in different harnesses, in different sessions, on different
+machines, and each is good at something different. Yet they still work as isolated
+workers, and the human becomes the relay that carries context from one to the next.
+
+[Herdr](https://herdr.dev) already brings the sessions and machines those agents run on
+into one environment. **ARDA is the Herdr plugin that lets the agents inside it work as one
+team:** they find each other, address each other by name, hand work over and get the results
+back, with no human in between.
+
+**Different agents. Different capabilities. One working team.** The machine is a resource;
+the agent is a worker; the work moves between them.
+
+```text
+                        ONE HERDR ENVIRONMENT
+
+   implementer      reviewer        tester        security     agents with different roles
+        \               |              |              /
+         ───────────────────── ARDA ─────────────────          how they reach each other
+
+     laptop         desktop        GPU workstation    …        shared resources, wherever they run
+```
+
+### Why a team of different agents
+
+- **They are worth having because they differ:** in model, tools, runtime, cost, speed and
+  the machine they sit on. Give each piece of work to the agent it fits (an independent
+  reviewer on another model, a quick agent for routine checks, a specialist next to a local
+  model), not to the strongest agent every time.
+- **The agent holding the task decides whom to ask.** It has the context. ARDA does not
+  route, rank or pick agents; it only lets them reach each other.
+- **Name agents by role** (`@reviewer`, `@tester`), so whatever agent fills a role can change
+  without changing how the team works.
+- **Hand off when the work calls for it,** at any point an agent finds a sub-task, and say
+  what done looks like: the outcome wanted and what to send back.
+- **More agents is not automatically better.** Watch whether the handoffs actually improve
+  the work.
+
+ARDA is not one developer driving several machines, a chat tool, a bridge between two
+particular agents, a remote terminal wrapper or a control plane. It is a thin Herdr
+plugin: Herdr does the discovery, routing and delivery, and ARDA gives the agents
+addresses and a small protocol for handing work to each other. It is pure Python standard
 library: no daemon, no database, no queue and no MCP server.
 
-**Works with:** Claude Code and Codex (tested). Other agents that Herdr can prompt are not
-tested yet.
+### What works today
+
+| | Status |
+| --- | --- |
+| Agents in the same Herdr session | Works; used live between Claude Code and Codex agents. |
+| Agents in other Herdr sessions on the machine | Works; tested with real Herdr servers. |
+| Agents on machines saved in Herdr (`herdr machine add`) | Works through Herdr's own machine routing; validated with real Herdr servers on one host, not yet between physical machines. |
+| Reply addresses that follow an agent across renames | Works with Herdr's official Claude Code and Codex integrations; tested live with Codex. |
+| Claude Code and Codex | Tested. Other agents Herdr can prompt are not tested yet. |
+| Sandboxes, cloud runtimes and other agent hosts | Not built: their agents can take part once Herdr can reach them. |
 
 ## What it looks like
 
-You ask Claude to get some work done by Codex. Claude runs:
+Three agents run in Herdr, named by their roles: `@implementer` (Claude Code), `@reviewer`
+(Codex) and `@tester`. The implementer finishes a change and hands the review over:
 
 ```text
-$ arda task @codex -- 'Count the Python functions whose names start with test_ under tests/.'
-delivered: task_request 708d3e to @codex: @codex was seen working after the message was submitted.
+$ arda task @reviewer -- 'Review the parser change in src/parser.py for unhandled edge cases.'
+delivered: task_request 708d3e to @reviewer: @reviewer was seen working after the message was submitted.
 Its ack and its result (or reject) will arrive here as ARDA messages; you do not need to wait or poll.
 ```
 
-Codex receives a prompt that starts with
-`[arda/1 task_request id=708d3e from=@claude.1806d161 to=@codex]` and ends with the
-commands to answer it. Codex runs `arda ack @claude.1806d161 708d3e`, does the work, then
-`arda result @claude.1806d161 708d3e -- '18'`. Each answer arrives in Claude's session as
-a new prompt, and Claude carries on from it. No human relays anything.
+The reviewer receives a prompt that starts with
+`[arda/1 task_request id=708d3e from=@implementer.s3f9a… to=@reviewer]` and ends with the
+commands to answer it. It runs `arda ack`, reviews the change, and sends `arda result` with
+its findings, which arrive in the implementer's session as a new prompt. The implementer
+fixes them and hands validation to `@tester` the same way. Nobody relays anything. More
+scenarios are in [examples/](examples/README.md).
 
 ## Quickstart
 
@@ -54,13 +101,13 @@ ln -s "$root/bin/arda" "$root/bin/arda-trust" ~/.local/bin/
 arda-trust          # shows what it would change
 arda-trust --yes    # applies it
 
-# 3. Start named agents, then introduce them to each other
-herdr agent start claude --kind claude --pane <pane>
-herdr agent start codex --kind codex --pane <pane> -- --no-daemon
+# 3. Start agents named by their roles, then introduce them to each other
+herdr agent start implementer --kind claude --pane <pane>
+herdr agent start reviewer --kind codex --pane <pane> -- --no-daemon
 herdr plugin action invoke introduce --plugin arda
 ```
 
-Then ask Claude something like *"Ask Codex to review the last commit."*
+Then ask the implementer something like *"Ask the reviewer to review the last commit."*
 
 To update, run `herdr plugin install Nirvaan05/arda` again (Herdr has no separate update
 command), then `arda-trust --status`. Herdr keeps an installed plugin at a fixed path, so
