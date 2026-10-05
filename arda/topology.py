@@ -11,11 +11,17 @@ import hashlib
 import os
 import re
 import socket
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from .envelope import Address, fingerprint
 from .herdr import Herdr, HerdrError
+
+# One invocation's whole survey: places not asked or not answered by then are reported so
+# (reason "budget"), and an answer that needed them is refused rather than guessed.
+SURVEY_BUDGET = 30.0
+MAX_IN_FLIGHT = 8   # Herdr calls at a time per invocation; one at a time per SSH target
 
 
 @dataclass
@@ -27,13 +33,32 @@ class Place:
     herdr: Herdr
     current: bool = False
     agents: list = field(default_factory=list)
+    target: str | None = None    # a saved machine's SSH target: calls to one target run one at a time
+    asked: bool = False
     error: str | None = None
     failure: HerdrError | None = None
-    alias_of: str | None = None   # another place that reaches the same Herdr server
+    skipped: str | None = None    # why the place was not asked
+    observed_at: int | None = None  # unix ms of its answer or failure
+
+    @property
+    def answered(self):
+        return self.asked and self.error is None
 
     @property
     def reachable(self):
-        return self.error is None
+        return self.error is None and self.skipped is None
+
+
+class Places(list):
+    """The places of one environment, plus the discovery calls that failed while finding them."""
+
+    def __init__(self, places, discovery_errors=()):
+        super().__init__(places)
+        self.discovery_errors = list(discovery_errors)
+
+    @property
+    def domain_known(self):
+        return not self.discovery_errors
 
 
 def _label(text, taken, fallback):
@@ -62,10 +87,13 @@ def discover(herdr):
     socket_path = os.environ.get('HERDR_SOCKET_PATH')
     host = socket.gethostname()
     taken = set()
+    errors = []
     try:
         sessions = herdr.local_json('session', 'list', '--json').get('sessions', [])
-    except (HerdrError, AttributeError):
+    except (HerdrError, AttributeError) as err:
         sessions = []
+        errors.append({'operation': 'session list', 'code': getattr(err, 'code', 'unexpected_reply'),
+                       'message': getattr(err, 'message', str(err))})
     current = None
     if herdr.session:
         current = next((item for item in sessions if item.get('name') == herdr.session), {'name': herdr.session})
@@ -76,10 +104,13 @@ def discover(herdr):
     current_name = (current or {}).get('name')
     try:
         machines = herdr.local_json('machine', 'list', '--json')
-    except HerdrError:
+    except HerdrError as err:
         machines = []
-    machines = [item for item in machines if isinstance(item, dict) and item.get('id')] \
-        if isinstance(machines, list) else []
+        errors.append({'operation': 'machine list', 'code': err.code, 'message': err.message})
+    if not isinstance(machines, list):
+        errors.append({'operation': 'machine list', 'code': 'unexpected_reply', 'message': str(machines)[:200]})
+        machines = []
+    machines = [item for item in machines if isinstance(item, dict) and item.get('id')]
     # Name every known session and machine first, in a fixed order, so a place keeps its
     # name whichever of them happen to be running or enabled.
     names = {}
@@ -105,41 +136,56 @@ def discover(herdr):
             continue
         label = item.get('label') or item['id']
         places.append(Place(names[('machine', item['id'])], 'machine', label, item.get('session') or 'default',
-                            herdr.at(machine=item['id'], label=label)))
-    return places
+                            herdr.at(machine=item['id'], label=label), target=item.get('target') or item['id']))
+    return Places(places, errors)
 
 
-def survey(places):
-    """Fill in each place's agents (asked in parallel), or the error that made it unreachable."""
-    def ask(place):
-        try:
-            place.agents = place.herdr.agents()
-        except HerdrError as err:
-            place.agents, place.error, place.failure = [], f'{err.code}: {err.message}', err
-    with ThreadPoolExecutor(max_workers=max(1, len(places))) as pool:
-        list(pool.map(ask, places))
-    return places
+def survey(places, budget=None):
+    """Ask each not-yet-asked place for its agents, within one budget for the whole survey.
 
-
-def dedupe(places):
-    """Keep each agent once when two places reach the same Herdr server.
-
-    A saved machine can point back at this machine, or two saved machines at one
-    server. Herdr terminal IDs belong to one server's terminals, so an ID seen in two
-    places is one agent, kept in the earlier place, the cheaper route to it. A place
-    whose agents all appeared in one earlier place is marked as that place's alias.
+    At most MAX_IN_FLIGHT calls run at a time and calls to one SSH target run one after
+    another. A place that cannot be started before the budget ends is skipped with
+    reason "budget"; a call never runs past it.
     """
-    seen = {}
+    deadline = time.monotonic() + (SURVEY_BUDGET if budget is None else budget)
+    queues = {}
     for place in places:
-        ids = [agent.get('terminal_id') for agent in place.agents]
-        earlier = {seen.get(tid) for tid in ids}
-        if ids and None not in earlier and len(earlier) == 1:
-            place.alias_of = earlier.pop()
-        place.agents = [agent for agent, tid in zip(place.agents, ids, strict=True) if not tid or tid not in seen]
-        for tid in ids:
-            if tid:
-                seen.setdefault(tid, place.name)
+        if not place.asked and place.skipped is None:
+            queues.setdefault(place.target if place.kind == 'machine' else id(place), []).append(place)
+
+    def run(queue):
+        for place in queue:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.5:
+                place.skipped = 'budget'
+                continue
+            place.asked = True
+            try:
+                place.agents = place.herdr.agents(limit=remaining)
+            except HerdrError as err:
+                place.agents, place.error, place.failure = [], f'{err.code}: {err.message}', err
+            place.observed_at = int(time.time() * 1000)
+    with ThreadPoolExecutor(max_workers=max(1, min(MAX_IN_FLIGHT, len(queues)))) as pool:
+        list(pool.map(run, queues.values()))
     return places
+
+
+def resolution(places, policy, needed, matches=(), permitted=True, needs_catalogs=True):
+    """The completeness record of one answer (see PROTOCOL.md): what was asked and what answered."""
+    asked = [p for p in places if p.asked]
+    return {
+        'policy': policy,
+        'permitted': permitted,
+        'complete': (places.domain_known or not needs_catalogs) and all(p.answered for p in needed),
+        'domain_known': places.domain_known,
+        'domain_complete': places.domain_known and all(p.answered for p in places),
+        'discovery_errors': places.discovery_errors,
+        'asked': [p.name for p in asked],
+        'unanswered': [{'place': p.name, 'error': p.error} for p in asked if p.error],
+        'unasked': [{'place': p.name, 'reason': p.skipped or 'not needed'} for p in places if not p.asked],
+        'observed_at': {p.name: p.observed_at for p in asked},
+        'matches': [{'place': p.name, 'route': a.get('pane_id'), 'name': a.get('name')} for p, a in matches],
+    }
 
 
 class Unresolved(Exception):
@@ -174,9 +220,7 @@ def resolve(address, places):
     if address.fingerprint:
         tiers = [[p for p in candidates if p.kind == 'session'], [p for p in candidates if p.kind != 'session']]
     for tier in tiers:
-        survey([p for p in tier if not p.agents and p.error is None and p.alias_of is None])
-        if len(candidates) > 1:
-            dedupe(candidates)
+        survey([p for p in tier if not p.asked])
         matches = [(p, a) for p in candidates for a in p.agents if a.get('name') == address.name]
         if address.fingerprint:
             matches = [(p, a) for p, a in matches if fingerprint(a.get('terminal_id')) == address.fingerprint]

@@ -7,7 +7,8 @@ State:
   "machines": {id: {"label", "session", "agents": [...], "down": bool, "enabled": bool}} for `machine list` and
               `--machine ID`; a machine can also have "hang" seconds (with "hang_child": a file that gets the
               pid of a child process it starts first), "error" (a Herdr error code), "fail" ({"agent list" or
-              "*": stderr text}) and "refuse_once" (commands whose first attempt has its SSH channel refused)
+              "*": stderr text}), "refuse_once" (commands whose first attempt has its SSH channel refused)
+              and "target" (its SSH target); "machine_list_error" makes `machine list` fail
   "prompts": every accepted `agent prompt` as {place, target, text, options}
   "notifications", "calls": recorded as well
 Optional "error" fails every call with that code; optional "raw" is printed verbatim instead of a
@@ -87,8 +88,11 @@ def main(argv):
         print(json.dumps({'sessions': sessions}))
         sys.exit(0)
     if argv[:3] == ['machine', 'list', '--json']:
+        if state.get('machine_list_error'):
+            print(state['machine_list_error'], file=sys.stderr)
+            sys.exit(1)
         print(json.dumps([{'id': mid, 'label': m.get('label', mid), 'session': m.get('session', 'default'),
-                           'enabled': m.get('enabled', True), 'target': f'user@{mid}'}
+                           'enabled': m.get('enabled', True), 'target': m.get('target', f'user@{mid}')}
                           for mid, m in state.get('machines', {}).items()]))
         sys.exit(0)
 

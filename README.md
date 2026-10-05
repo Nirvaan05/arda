@@ -166,8 +166,9 @@ gpu: saved machine gpu, Herdr session default: unreachable (machine_unreachable:
 - **Unreachable places say why:** the machine cannot be reached, its Herdr session is not
   running, it refused the SSH login (`herdr machine reconnect`), or its Herdr version does
   not match. A name found once while another place did not answer is still sent, and the
-  result names the places that were not checked. Two routes to the same Herdr server, such
-  as a saved machine that points back at this one, are listed once.
+  result names the places that were not checked. ARDA cannot prove that two routes reach
+  the same Herdr server, such as a saved machine that points back at this one, so it lists
+  both and a name seen through both needs its place (`@name@place`).
 
 For two machines to talk both ways, each needs a saved Herdr machine for the other and
 `arda` on its PATH. Herdr gives a remote server no route back to the caller, so a machine

@@ -35,9 +35,13 @@ message is sent:
 - A place that does not answer is reported as unreachable, with Herdr's reason. Nothing
   is sent to it. A name found once while another place did not answer is sent, and the
   result lists the places that were not checked.
-- Two places that reach the same Herdr server show the same terminal IDs. Each agent
-  counts once, in the earlier place (this session, then this machine's other sessions,
-  then saved machines), so a second route never makes a name ambiguous.
+- ARDA cannot prove that two places reach the same Herdr server (a saved machine that
+  points back at this one, for example), so it never merges them: a name seen through both
+  needs its place.
+- A survey asks at most eight places at a time and one at a time per saved machine's SSH
+  target, within one overall budget; a place it could not ask in time is reported as not
+  asked. Every result carries a `resolution` record of what was asked, what answered, what
+  failed (including the session or machine catalog itself) and when.
 
 Places are relative to the machine that resolves them, so a reply is addressed to the
 sender's name and fingerprint, not to a place. The receiver resolves that against its

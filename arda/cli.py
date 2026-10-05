@@ -23,7 +23,7 @@ from .envelope import (
     parse_address,
 )
 from .herdr import Herdr, HerdrError
-from .topology import Unresolved, dedupe, discover, resolve, survey
+from .topology import Unresolved, discover, resolution, resolve, survey
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIRM_MS = 15000
@@ -250,10 +250,14 @@ def send(herdr, args, kind, re=None):
     body = read_body(getattr(args, 'text', None), getattr(args, 'file', None))
     message = Message(type=kind, sender=me['address'], recipient=address(to.route), body=body, re=re)
     places = discover(herdr)
+    policy = 'pane' if to.name is None else 'qualified' if to.place else 'hint' if to.fingerprint else 'bare'
+    needed = [p for p in places if p.name == to.place] if to.place else places[:1] if to.name is None else places
     try:
-        place, _ = resolve(to, places)
+        place, agent = resolve(to, places)
     except Unresolved as err:
-        return outcome(message, 'not_delivered', str(err))
+        result = outcome(message, 'not_delivered', str(err))
+        result['resolution'] = resolution(places, policy, needed, permitted=False, needs_catalogs=policy != 'pane')
+        return result
     if place.current and to.route in (me['name'], me['pane_id']):
         raise UsageError('cannot send an ARDA message to yourself')
     if not place.current and not me['name']:
@@ -261,12 +265,13 @@ def send(herdr, args, kind, re=None):
                          f'{place.name} could not reply; name this agent first (herdr agent rename '
                          f'{me["pane_id"]} <name>)')
     result = deliver(place, to.route, message, force=getattr(args, 'force', False), fp=to.fingerprint)
+    result['resolution'] = resolution(places, policy, needed, [(place, agent)] if agent else [],
+                                      needs_catalogs=policy != 'pane')
     # A bare name was matched once among the places that answered; say which did not.
-    unchecked = [p.name for p in places if not p.reachable] if to.name and not (to.place or to.fingerprint) else []
-    if unchecked and result['status'] != 'not_delivered':
-        result['unchecked'] = unchecked
-        result['detail'] += (f' Not checked: {", ".join(unchecked)} did not answer, so an agent with the same name '
-                             'there was not ruled out.')
+    unanswered = [u['place'] for u in result['resolution']['unanswered']]
+    if policy == 'bare' and unanswered and result['status'] != 'not_delivered':
+        result['detail'] += (f' Not checked: {", ".join(unanswered)} did not answer, so an agent with the same '
+                             'name there was not ruled out.')
     return result
 
 
@@ -302,7 +307,7 @@ def environment(herdr):
         me = identity(herdr)
     except (UsageError, HerdrError):
         me = None  # listing peers does not need to know who is asking
-    places = dedupe(survey(discover(herdr)))
+    places = survey(discover(herdr))
     if places[0].failure:
         raise places[0].failure  # the caller's own Herdr server cannot be reached
     counts = Counter(agent.get('name') for place in places for agent in place.agents if agent.get('name'))
@@ -328,19 +333,21 @@ def environment(herdr):
 def cmd_peers(herdr, args):
     _, places, peers = environment(herdr)
     data = {'places': [{'place': p.name, 'kind': p.kind, 'machine': p.machine, 'session': p.session,
-                        'current': p.current, 'reachable': p.reachable, 'error': p.error, 'same_as': p.alias_of}
-                       for p in places],
-            'peers': peers}
-    rows = []
+                        'current': p.current, 'answered': p.answered, 'error': p.error, 'skipped': p.skipped,
+                        'observed_at': p.observed_at} for p in places],
+            'peers': peers,
+            'resolution': resolution(places, 'inventory', places)}
+    rows = [f'cannot list {e["operation"]}: {e["code"]}: {e["message"]}; places may be missing'
+            for e in places.discovery_errors]
     for place in places:
         where = (f'Herdr session {place.session} on this machine ({place.machine})' if place.kind == 'session'
                  else f'saved machine {place.machine}, Herdr session {place.session}')
         header = f'{place.name}: {where}' + (' (you are here)' if place.current else '')
+        if place.skipped:
+            rows.append(f'{header}: not asked ({place.skipped})')
+            continue
         if not place.reachable:
             rows.append(f'{header}: unreachable ({place.error})')
-            continue
-        if place.alias_of:
-            rows.append(f'{header}: the same Herdr server as {place.alias_of}; its agents are listed there')
             continue
         rows.append(header)
         here = [peer for peer in peers if peer['place'] == place.name]

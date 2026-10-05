@@ -145,10 +145,13 @@ class Herdr:
             raise HerdrError('connection_lost', f'the SSH connection to saved machine {self.label} failed: '
                                                 f'{detail[:300]}')
 
-    def lookup(self, *args):
-        """A read-only call: bounded for the place it goes to, and tried once more if a saved
-        machine refused the SSH channel, since nothing was sent then."""
+    def lookup(self, *args, limit=None):
+        """A read-only call: bounded for the place it goes to (and by `limit`, what is left of a
+        larger budget), tried once more if a saved machine refused the SSH channel, since
+        nothing was sent then."""
         timeout = MACHINE_TIMEOUT if self.machine else LOOKUP_TIMEOUT
+        if limit is not None:
+            timeout = max(0.5, min(timeout, limit))
         try:
             return self.call(*args, timeout=timeout)
         except HerdrError as err:
@@ -156,8 +159,8 @@ class Herdr:
                 raise
         return self.call(*args, timeout=timeout)
 
-    def agents(self):
-        agents = _field(self.lookup('agent', 'list'), 'agents', list)
+    def agents(self, limit=None):
+        agents = _field(self.lookup('agent', 'list', limit=limit), 'agents', list)
         for agent in agents:
             _field(agent, 'pane_id', str)
         return agents

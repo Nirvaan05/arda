@@ -35,7 +35,7 @@ class PlacesTests(CliCase):
         code, out, _ = self.run_cli('peers', '--json')
         data = json.loads(out)
         self.assertEqual(code, 0)
-        self.assertEqual([(p['place'], p['kind'], p['reachable']) for p in data['places']],
+        self.assertEqual([(p['place'], p['kind'], p['answered']) for p in data['places']],
                          [('main', 'session', True), ('other', 'session', True), ('desktop', 'machine', True),
                           ('gpu', 'machine', False)])
         self.assertEqual([(p['address'], p['place'], p['you']) for p in data['peers']],
@@ -139,29 +139,45 @@ class PlacesTests(CliCase):
         code, out, _ = self.run_cli('send', '@codex', '--json', '--', 'hi')
         self.assertEqual((code, json.loads(out)['status'], self.prompts()), (1, 'not_delivered', []))
 
-    def test_two_routes_to_one_server_show_each_agent_once(self):
+    def test_two_routes_to_one_server_are_both_listed_never_merged(self):
+        # A saved machine pointing back at this server: ARDA cannot prove it is the same server, so it
+        # keeps both routes and refuses a name it sees twice (Codex review D4).
         mine = [agent('claude', 'w1:p1', terminal_id='term_0000aaaa1111'),
                 agent('helper', 'w1:p2', terminal_id='term_0000bbbb2222')]
-        self.set_agents(*mine, sessions=sessions('main'),
-                        machines={'l1': {'label': 'loop', 'agents': mine},
-                                  'd1': {'label': 'desktop', 'agents': [mine[1], agent('codex', 'w1:p5')]}})
-        self.assertEqual(self.run_cli('send', '@helper', '--', 'hi')[0], 0)
-        self.assertEqual(self.prompts()[-1]['place'], 'current')
+        self.set_agents(*mine, sessions=sessions('main'), machines={'l1': {'label': 'loop', 'agents': mine}})
         data = json.loads(self.run_cli('peers', '--json')[1])
-        self.assertEqual([(p['place'], p['same_as']) for p in data['places']],
-                         [('main', None), ('loop', 'main'), ('desktop', None)])
-        self.assertEqual([p['address'] for p in data['peers']], ['@claude', '@helper', '@codex'])
-        self.assertIn('loop: saved machine loop, Herdr session default: the same Herdr server as main',
-                      self.run_cli('peers')[1])
+        self.assertEqual([p['address'] for p in data['peers']], ['@claude@main', '@helper@main', '@claude@loop',
+                                                                  '@helper@loop'])
+        code, out, _ = self.run_cli('send', '@helper', '--json', '--', 'hi')
+        self.assertEqual((code, json.loads(out)['status']), (1, 'not_delivered'))
+        self.assertEqual(self.run_cli('send', '@helper@main', '--', 'hi')[0], 0)
 
     def test_a_name_matched_while_a_machine_did_not_answer_says_so(self):
         code, out, _ = self.run_cli('send', '@codex', '--json', '--', 'hi')
         result = json.loads(out)
-        self.assertEqual((code, result['status'], result['unchecked']), (0, 'delivered', ['gpu']))
+        self.assertEqual((code, result['status']), (0, 'delivered'))
+        self.assertEqual([u['place'] for u in result['resolution']['unanswered']], ['gpu'])
+        self.assertFalse(result['resolution']['complete'])
         self.assertIn('Not checked: gpu did not answer', result['detail'])
-        self.env['HERDR_PANE_ID'] = 'w1:p2'
-        result = json.loads(self.run_cli('result', '@claude.aaaa1111', 'abc123', '--json', '--', 'done')[1])
-        self.assertNotIn('unchecked', result)
+
+    def test_failed_discovery_is_reported_not_treated_as_empty(self):
+        self.environment(machine_list_error='cannot read the machine catalog')
+        data = json.loads(self.run_cli('peers', '--json')[1])
+        self.assertFalse(data['resolution']['domain_known'])
+        self.assertEqual(data['resolution']['discovery_errors'][0]['operation'], 'machine list')
+        self.assertIn('cannot list machine list', self.run_cli('peers')[1])
+
+    def test_a_survey_has_one_budget_and_one_call_at_a_time_per_ssh_target(self):
+        slow = {'label': 'slow', 'hang': 1.2, 'target': 'me@box', 'agents': []}
+        self.environment(machines={'s1': dict(slow), 's2': {**slow, 'label': 'slow2'}})
+        with mock.patch('arda.topology.SURVEY_BUDGET', 1.6):
+            data = json.loads(self.run_cli('peers', '--json')[1])
+        places = {p['place']: p for p in data['places']}
+        # the two places share one SSH target, so they were asked one after the other; the second did
+        # not fit in what was left of the budget
+        self.assertEqual(sorted((places['slow']['skipped'], places['slow2']['skipped']), key=str), [None, 'budget'])
+        self.assertIn({'place': 'slow2' if places['slow2']['skipped'] else 'slow', 'reason': 'budget'},
+                      data['resolution']['unasked'])
 
     def test_a_timed_out_lookup_leaves_no_process_behind(self):
         marker = Path(self.tmp.name) / 'child.pid'
