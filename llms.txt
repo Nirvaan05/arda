@@ -1,0 +1,34 @@
+# ARDA
+
+> ARDA is a Herdr plugin that lets coding agents (Claude Code, Codex and others) in Herdr panes find each other by name and hand work to each other across Herdr sessions and saved machines. It is a short-lived Python command with no daemon, database or state; Herdr does discovery, routing and delivery.
+
+Key facts: messages are note, task_request, ack, result and reject. Agents run `arda task @name -- 'text'` from their own pane and receive replies as new prompts starting with `[arda/1`. Delivery statuses are delivered, submitted, uncertain and not_delivered. Only the user runs `arda-trust`, the one-time approval.
+
+## Docs
+
+- [Documentation index](docs/README.md): which document answers which question
+- [Mental model](docs/mental-model.md): different agents, different capabilities, distributed resources, one working team
+- [Architecture](docs/architecture.md): what Herdr does, what ARDA does, the path of a message, code map
+- [Discovery and routing](docs/discovery.md): the environment, name resolution, replies across machines
+- [Protocol](docs/protocol.md): addresses, message types, handoff conventions, wire format, delivery, self-description
+- [Getting started](docs/getting-started.md): install, approve, start agents, first task
+- [CLI reference](docs/reference/cli.md): commands, options, exit codes, JSON output
+
+## Guides
+
+- [Claude Code](docs/guides/claude-code.md)
+- [Codex](docs/guides/codex.md)
+- [Multi-machine](docs/guides/multi-machine.md)
+- [Trust and consent](docs/guides/trust-and-consent.md)
+- [Troubleshooting](docs/troubleshooting.md)
+
+## Examples
+
+- [Implement, review, fix](docs/examples/team-workflow.md): a verified exchange between Claude Code and Codex
+- [A distributed team](docs/examples/distributed-team.md): illustrative team across machines
+
+## Optional
+
+- [Agent skill](skills/arda/SKILL.md): how an agent uses ARDA
+- [Contributing](docs/contributing.md)
+- [AGENTS.md](AGENTS.md): guidance for coding agents working on this repository
