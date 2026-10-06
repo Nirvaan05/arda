@@ -1,0 +1,3 @@
+Claude Code on the laptop, Codex on the desktop, and you copy-pasting between them. ARDA is a Herdr plugin that lets them find each other by name, hand off tasks, and send the results back. No daemon, no database, no MCP server.
+
+herdr plugin install Nirvaan05/arda
