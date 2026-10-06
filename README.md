@@ -1,6 +1,40 @@
 # ARDA
 
-**One plugin to rule them all.** Agents shouldn’t live in separate worlds.
+One [Herdr](https://herdr.dev) plugin to connect coding agents across tools, sessions and machines.
+
+```sh
+herdr plugin install Nirvaan05/arda
+```
+
+Linux, Python 3.11+, Herdr 0.9.3+. Install on each participating machine;
+see [Getting started](docs/getting-started.md#2-install-arda) for PATH setup.
+
+## Get started
+
+**Install → Approve once → Introduce agents → Ask one agent to involve another**
+
+1. **Approve ARDA once on the machine.** Run this yourself in a plain terminal or a
+   plain shell pane in Herdr, not inside an agent's pane:
+
+   ```sh
+   arda-trust --yes
+   ```
+
+2. **Introduce participating agents.** [Start named agents](docs/getting-started.md#4-start-agents-named-by-their-roles)
+   in Herdr after approving ARDA, then run:
+
+   ```sh
+   herdr plugin action invoke introduce --plugin arda
+   ```
+
+   Each idle, named agent receives its address, its peers and the commands to reach them.
+
+3. **Ask one agent to involve another.** Tell the implementer:
+   *"Ask the reviewer to review the last commit."* Replies arrive in the sender's pane as
+   new prompts.
+
+Full walkthrough: [Getting started](docs/getting-started.md).
+What approval changes: [Trust and consent](docs/guides/trust-and-consent.md).
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](docs/getting-started.md#requirements)
@@ -89,21 +123,8 @@ delivered: task_request 8e9507 to @codex: @codex was seen working after the mess
 The full exchange: [implement, review, fix](docs/examples/team-workflow.md). A team across
 laptop, desktop, GPU and a remote server: [distributed team](docs/examples/distributed-team.md).
 
-## Install
+## Trust and consent
 
-Linux, Python 3.11+, Herdr 0.9.3+. On each machine whose agents take part:
-
-```sh
-herdr plugin install Nirvaan05/arda
-root=$(herdr plugin list --plugin arda --json |
-  python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["plugins"][0]["plugin_root"])')
-ln -s "$root/bin/arda" "$root/bin/arda-trust" ~/.local/bin/
-
-arda-trust --yes                                      # once, yourself, in a plain terminal
-herdr plugin action invoke introduce --plugin arda    # tell the agents about each other
-```
-
-Then ask one agent to involve another. Step by step: [getting started](docs/getting-started.md).
 Approving ARDA lets agents act on each other's requests;
 [trust and consent](docs/guides/trust-and-consent.md) says exactly what it changes. ARDA is a
 convenience layer, not a security boundary.
