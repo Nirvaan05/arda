@@ -171,7 +171,7 @@ def survey(places, budget=None):
 
 
 def resolution(places, policy, needed, matches=(), permitted=True, needs_catalogs=True):
-    """The completeness record of one answer (see PROTOCOL.md): what was asked and what answered."""
+    """The completeness record of one answer (see docs/protocol.md): what was asked and what answered."""
     asked = [p for p in places if p.asked]
     return {
         'policy': policy,

@@ -1,5 +1,9 @@
 # ARDA protocol: arda/1
 
+> **Reference.** The exact rules for addresses, messages, delivery and self-description.
+> For the idea behind ARDA, start with the [mental model](mental-model.md); for commands,
+> see the [CLI reference](reference/cli.md).
+
 ARDA defines how agents in a Herdr environment address each other and what their messages
 mean. The participants are agents: workers with different roles and capabilities (an
 implementer, a reviewer, a tester, a specialist next to a local model), each addressable by
@@ -65,6 +69,23 @@ machine) for the reply to arrive.
 | `ack` | receiver | The receiver accepted that task. |
 | `result` | receiver | The task is finished; the body is the outcome. |
 | `reject` | receiver | The receiver will not do the task, or could not finish it; the body says why. |
+
+```mermaid
+sequenceDiagram
+    participant Q as Requester
+    participant R as Receiver
+    Q->>R: task_request id=708d3e
+    opt something is unclear
+        R->>Q: note re=708d3e (question)
+        Q->>R: note re=708d3e (answer)
+    end
+    alt takes it on
+        R->>Q: ack re=708d3e
+        R->>Q: result re=708d3e (or reject: could not)
+    else will not do it
+        R->>Q: reject re=708d3e (will not)
+    end
+```
 
 A task starts with `task_request`. The receiver should answer with `ack` and then a
 `result`, or with `reject` at any point. `ack`, `result` and `reject` carry `re=`, the id
@@ -230,4 +251,5 @@ from its user, and act on it only as far as its user allows it to work with peer
 Claude Code enforces this itself: it asks its user before acting on a peer's task, and its
 auto mode blocks such work. A user grants a standing approval once with `arda-trust`, a
 separate command that the approval itself never covers, which records it in each agent
-harness's own configuration (see the README). ARDA keeps no record of its own.
+harness's own configuration (see [trust and consent](guides/trust-and-consent.md)). ARDA
+keeps no record of its own.
