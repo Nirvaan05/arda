@@ -166,7 +166,7 @@ ARDA is a convenience layer, not a security boundary.
 | --- | --- |
 | `arda whoami` | Your own address, pane, session and machine. |
 | `arda peers` | Active agents in every reachable Herdr session and machine, with what each says it does. |
-| `arda describe --role '…' --tools '…' --model '…'` | Tell peers what you do, which tools you use and which model you run. Without options, show it. |
+| `arda describe --role '…' --tools '…' --model auto` | Tell peers what you do, which tools you use and which model you run (`auto` reads it from your own session log). Without options, show it. |
 | `arda send @name -- 'text'` | Send a note. Add `--re <id>` for a note about a task: a question, an answer or a change of plan. |
 | `arda task @name -- 'text'` | Hand over a task. Expect `ack`, then `result` or `reject`. |
 | `arda ack @name <id>` | Accept a task you received. |
@@ -218,7 +218,9 @@ Each agent's row starts with its state: ● working, ○ idle or done, ! waiting
 (blocked), ? unknown.
 
 - **Peers say what they do.** An agent describes itself once with
-  `arda describe --role '…' --tools '…' --model '…'`. Herdr keeps the description as
+  `arda describe --role '…' --tools '…' --model auto`, where `auto` reads the exact model
+  (such as `gpt-6.1-sol (reasoning xhigh)`) from the agent's own Claude Code or Codex session
+  log rather than trusting what the agent believes. Herdr keeps the description as
   metadata on the agent's pane, and `arda peers` shows it next to what Herdr observes:
   harness, state, working directory and place. A description is the agent's own claim, not
   verified, and it is gone after a Herdr restart. With Herdr's integrations it follows the

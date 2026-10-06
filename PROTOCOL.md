@@ -190,7 +190,10 @@ arrive as new prompts.
 
 An agent can tell its peers what it does, which tools it uses and which model it runs.
 `arda describe` stores this as Herdr metadata tokens on the agent's own pane, and
-`arda peers` reads them from Herdr with everything else. ARDA keeps no copy.
+`arda peers` reads them from Herdr with everything else. ARDA keeps no copy. With
+`--model auto`, the model comes from the agent's own session log on its machine (the
+newest turn of its Codex session, or the newest reply in its Claude Code transcript),
+found through the conversation Herdr's integration reports for it.
 
 | Token | Value |
 | --- | --- |

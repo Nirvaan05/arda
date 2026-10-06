@@ -27,7 +27,7 @@ herdr plugin list --plugin arda --json   # bin/arda under .plugin_root
 ```bash
 arda whoami                      # your own address, e.g. @claude.1806d161
 arda peers                       # active agents in every Herdr session and machine you can reach
-arda describe --role '<what you do>' --tools '<tools>' --model '<model>'   # tell peers what you do
+arda describe --role '<what you do>' --tools '<tools>' --model auto   # tell peers what you do
 arda send @codex -- 'text'          # a note: no reply expected
 arda send @codex --re <id> -- 'text'   # a note about a task: a question, an answer, a change
 arda task @codex -- 'text'          # hand over work: expect ack, then result or reject
@@ -50,9 +50,11 @@ to a file and pass `--file PATH` instead; refer to other files by path.
   after the dot ties the reply to the agent that asked, even if it was renamed. Names can
   change; if a name is refused, `arda peers` shows the current ones. If you have no name,
   peers can reach you only by pane ID; ask the user before renaming yourself.
-- Describe yourself once when you start working with peers (`arda describe`): your role
-  as your user set it, the tools you use, your model. Each field is one line of at most 80
-  characters. Change it when your work changes.
+- Describe yourself once when you start working with peers, and again after Herdr restarts
+  (`arda describe`): your role as your user set it and the tools you use, each one line of
+  at most 80 characters. For the model, use `--model auto`: it reads your exact model from
+  your own session log, which is more reliable than what you believe you run on. Change the
+  description when your work changes.
 - Hand work to the peer whose role fits it. `arda peers` shows who is there, what each says
   it does and where it works; ARDA does not choose for you. A description is the peer's own
   claim: if it matters, ask first or start with a small task.

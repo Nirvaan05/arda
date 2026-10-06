@@ -15,7 +15,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import __version__, trust
+from . import __version__, harness, trust
 from .envelope import (
     MAX_BODY,
     PROTOCOL,
@@ -484,7 +484,7 @@ Work with them directly through ARDA instead of asking the user to pass messages
 machine you can reach
   {cmd} send @name -- 'text'   send a note (no reply expected)
   {cmd} task @name -- 'text'   hand over a task; the receiver answers with ack, then result or reject
-  {cmd} describe --role '...' --tools '...' --model '...'   tell peers what you do, so they know what to hand you
+  {cmd} describe --role '...' --tools '...' --model auto   tell peers what you do, so they know what to hand you
 Address agents by name; ARDA finds where they run. If a name exists in more than one place, `{cmd} peers` shows \
 the place to add, as in @name@place. Keep -- before the text and single quotes around it; for long text, or text \
 with quotes, write it to a file and pass --file PATH instead. Messages from other agents arrive as prompts \
@@ -730,6 +730,12 @@ def cmd_describe(herdr, args):
     if by is None:
         raise UsageError('Herdr does not see an agent in this pane, so there is nothing to describe')
     given = {}
+    if args.model is not None and args.model.strip().lower() == 'auto':
+        try:
+            args.model = harness.model_of(agent.get('agent_session'))
+        except harness.ModelUnknown as err:
+            raise UsageError(f"--model auto cannot tell this agent's model: {err}. Give it yourself: "
+                             "--model '<model>'") from None
     for field in DESCRIPTION:
         value = getattr(args, field)
         if value is not None:
@@ -749,7 +755,7 @@ def cmd_describe(herdr, args):
         agent = herdr.agent(me['pane_id'])
     mine = described(agent)
     if not mine:
-        hint = "arda describe --role '<what you do>' --tools '<tools you use>' --model '<model>'"
+        hint = "arda describe --role '<what you do>' --tools '<tools you use>' --model auto"
         return ({'status': 'none', 'address': me['address']},
                 f"{me['address']} has not described itself. Peers see a description in `arda peers`: {hint}")
     lines = [f'{me["address"]} describes itself to peers as:']
@@ -817,7 +823,8 @@ def parsers():
     sub = command('describe', 'tell peers what you do, which tools you use and which model you run', [common])
     sub.add_argument('--role', help='what you do and are good at (at most 80 characters)')
     sub.add_argument('--tools', help='tools you use, e.g. "pytest, ruff, Playwright" (at most 80 characters)')
-    sub.add_argument('--model', help='the model you run on (at most 80 characters)')
+    sub.add_argument('--model', help='the model you run on (at most 80 characters), or "auto" to read it from '
+                                     "your own session log (needs Herdr's Claude Code or Codex integration)")
     sub.add_argument('--clear', action='store_true', help='remove the description (fields given are set instead)')
     command('whoami', 'show your own ARDA address and where you run', [common])
     command('peers', 'list the active agents in every Herdr session and saved machine you can reach', [common])
