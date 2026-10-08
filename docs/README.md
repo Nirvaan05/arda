@@ -15,6 +15,7 @@
 | Use ARDA with Claude Code | [Claude Code guide](guides/claude-code.md) |
 | Use ARDA with Codex | [Codex guide](guides/codex.md) |
 | Connect agents on other machines | [Multi-machine guide](guides/multi-machine.md) |
+| Run ARDA on Windows | [Windows guide](guides/windows.md) |
 | Know what approving ARDA changes and allows | [Trust and consent](guides/trust-and-consent.md) |
 | See a real exchange between two agents | [Example: implement, review, fix](examples/team-workflow.md) |
 | See a team spread over several machines | [Example: a distributed team](examples/distributed-team.md) |
@@ -36,7 +37,8 @@ docs/
 │   ├── claude-code.md
 │   ├── codex.md
 │   ├── multi-machine.md
-│   └── trust-and-consent.md
+│   ├── trust-and-consent.md
+│   └── windows.md
 ├── examples/
 │   ├── team-workflow.md   VERIFIED exchange between Claude Code and Codex
 │   └── distributed-team.md
