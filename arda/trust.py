@@ -15,16 +15,25 @@ The approval allows the `arda` command only. Both harnesses are also told to
 refuse `arda-trust` (Claude Code deny rules, a Codex forbidden rule), so an agent
 cannot use the approval to extend it. `arda-trust --revoke` removes exactly what it
 added, including what older versions installed as `arda trust`.
+
+On Windows, `arda-trust` also writes the `arda` command itself, bin/arda.exe: a script
+launcher that runs ARDA with the Python that ran `arda-trust`, isolated, the way
+bin/arda does with the system's python3 on Linux.
 """
 
 import contextlib
+import io
 import json
 import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
+import zipfile
 from pathlib import Path
+
+WINDOWS = sys.platform == 'win32'
 
 CONSENT = """\
 I run coding agents in Herdr and use ARDA so they can work together without me
@@ -95,7 +104,7 @@ class TrustError(Exception):
 def codex_instructions(home):
     """Codex reads AGENTS.override.md instead of AGENTS.md when it exists and is not empty."""
     override = home / 'AGENTS.override.md'
-    if override.exists() and override.read_text().strip():
+    if override.exists() and override.read_text(encoding='utf-8').strip():
         return override
     return home / 'AGENTS.md'
 
@@ -109,8 +118,11 @@ def codex_home():
 
 
 def script_paths(script):
-    """Every path a command may be invoked by: the script and a PATH link to it."""
+    """Every path a command may be invoked by: the script and a PATH link to it (on Windows, also the
+    script's path with forward slashes, the form ARDA's reply instructions use)."""
     paths = [str(script)]
+    if WINDOWS and script.as_posix() not in paths:
+        paths.append(script.as_posix())
     found = shutil.which(script.name)
     if found and Path(found).resolve() == script.resolve() and found not in paths:
         paths.append(found)
@@ -118,7 +130,32 @@ def script_paths(script):
 
 
 def trust_script(script):
-    return script.with_name('arda-trust')
+    return script.with_name('arda-trust.py' if WINDOWS else 'arda-trust')
+
+
+def trust_host_paths(script):
+    """Where Codex finds the arda-trust command. On Windows it is not a command but a script the user
+    runs with Python, and Codex refuses a host executable whose name is not arda-trust, so none."""
+    return [] if WINDOWS else script_paths(trust_script(script))
+
+
+def launcher(script):
+    """The bytes of bin/arda.exe: pip's script launcher (what every console-script .exe on Windows
+    is), with the absolute path of this Python in its first line, so neither PATH nor PATHEXT
+    picks the interpreter, -I so no PYTHON* variable, user site or current directory reaches it,
+    and -X utf8 for message text. It runs this installation of ARDA, wherever script is."""
+    try:
+        from pip._vendor import distlib
+        stub = (Path(distlib.__file__).parent / 't64.exe').read_bytes()
+    except (ImportError, OSError):
+        raise TrustError('writing bin\\arda.exe needs pip\'s script launcher, and pip is not installed in '
+                         f'{sys.executable}; run `{sys.executable} -m ensurepip`, then arda-trust again') from None
+    main = (f'import sys\nsys.path.insert(0, {str(Path(__file__).resolve().parent.parent)!r})\n'
+            'from arda.cli import main\nraise SystemExit(main())\n')
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, 'w') as zf:
+        zf.writestr(zipfile.ZipInfo('__main__.py', date_time=(1980, 1, 1, 0, 0, 0)), main)  # same bytes each time
+    return stub + f'#!"{sys.executable}" -I -X utf8\r\n'.encode() + archive.getvalue()
 
 
 def claude_permissions(script):
@@ -132,8 +169,9 @@ def claude_permissions(script):
 # (paths may contain spaces): allow `arda *`; deny `arda trust`, `arda trust *` (before arda-trust existed),
 # `arda-trust`, `arda-trust *`. Grant removes the ones it does not want now (an older version, a
 # moved install); revoke removes all. Other rules, even similar ones, are the user's.
-_ARDA = r'(?:arda|/.+/arda)'           # the bare command, or any full path to it (bin/, a PATH link)
-_TRUST = r'(?:arda-trust|/.+/arda-trust)'
+# On Windows, full paths may start with a drive and use either slash, and the commands are arda.exe and arda-trust.py.
+_ARDA = r'(?:arda|(?:[A-Za-z]:)?[/\\].+[/\\]arda(?:\.exe)?)'  # the bare command, or any full path to it
+_TRUST = r'(?:arda-trust|(?:[A-Za-z]:)?[/\\].+[/\\]arda-trust(?:\.py)?)'
 _OURS = {'allow': re.compile(rf'Bash\({_ARDA} \*\)'),
          'deny': re.compile(rf'Bash\((?:{_ARDA} trust(?: \*)?|{_TRUST}(?: \*)?)\)')}
 
@@ -143,8 +181,9 @@ def ours(rule, kind):
 
 
 def plan(script):
-    """What trust consists of for each harness whose configuration directory exists."""
-    steps = []
+    """What trust consists of for each harness whose configuration directory exists (on Windows,
+    and the arda command itself)."""
+    steps = [{'harness': 'arda', 'path': script, 'launcher': True}] if WINDOWS else []
     claude = claude_home()
     if claude.is_dir():
         steps.append({'harness': 'claude', 'path': claude / 'rules' / 'arda.md', 'content': CLAUDE_RULES})
@@ -156,7 +195,7 @@ def plan(script):
         steps.append({'harness': 'codex', 'path': selected, 'block': CODEX_BLOCK, 'others': others})
         steps.append({'harness': 'codex', 'path': codex / 'rules' / 'arda.rules',
                       'content': CODEX_RULES.format(paths=json.dumps(script_paths(script)),
-                                                    trust_paths=json.dumps(script_paths(trust_script(script))))})
+                                                    trust_paths=json.dumps(trust_host_paths(script)))})
     return steps
 
 
@@ -164,13 +203,17 @@ def status(script):
     lines = []
     for step in plan(script):
         path = step['path']
-        if 'content' in step:
+        if 'launcher' in step:
+            state = ('not installed (run arda-trust --yes)' if not path.exists() else 'installed'
+                     if path.read_bytes() == launcher(script) else 'for another Python or install (run arda-trust --yes)')
+        elif 'content' in step:
             text = _text(path)
             state = 'not installed' if not _owned(text, step['content']) else 'installed' if text == step['content'] else OUTDATED
         elif 'block' in step:
             span = _block(path)
+            section = _text(path)[span[0]:span[1]].replace('\r\n', '\n') if span else ''  # in the file's line endings
             state = ('not installed' if not span
-                     else 'installed' if _text(path)[span[0]:span[1]].rstrip('\n') == step['block'].rstrip('\n')
+                     else 'installed' if section.rstrip('\n') == step['block'].rstrip('\n')
                      else OUTDATED)
             stray = [other for other in step['others'] if other.exists() and _block(other)]
             if stray:
@@ -191,7 +234,10 @@ def status(script):
 def describe(script, revoke):
     lines = []
     for step in plan(script):
-        if 'content' in step:
+        if 'launcher' in step:
+            if not revoke:
+                lines.append(f'arda: write {step["path"]}, which runs ARDA with {sys.executable}')
+        elif 'content' in step:
             lines.append(f'{step["harness"]}: {"remove" if revoke else "write"} {step["path"]}')
         elif 'block' in step:
             where = 'remove the marked ARDA section from' if revoke else 'add a marked ARDA section to'
@@ -234,6 +280,13 @@ def apply(script, revoke=False):
             done.append('could not check the Codex rules: codex is not on PATH here')
     for step in steps:
         path = step['path']
+        if 'launcher' in step:
+            # Revoking leaves the command: it works without trust, asking for approval as any command does.
+            data = launcher(script)
+            if not revoke and (not path.exists() or path.read_bytes() != data):
+                _write(path, data, mode=0o755)
+                done.append(f'wrote {path}')
+            continue
         if 'content' in step:
             if revoke:
                 if path.exists():
@@ -324,7 +377,7 @@ def _owned(text, content):
 
 def _text(path):
     try:
-        with open(path, newline='') as handle:  # keep the user's line endings
+        with open(path, newline='', encoding='utf-8') as handle:  # keep the user's line endings
             return handle.read()
     except FileNotFoundError:
         return ''
@@ -373,7 +426,7 @@ def _block(path):
 
 def _settings(path):
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding='utf-8'))
     except FileNotFoundError:
         return {}
     except ValueError as err:
@@ -385,15 +438,16 @@ def _settings(path):
     return data
 
 
-def _write(path, text):
+def _write(path, text, mode=None):
     """Replace a file's contents atomically, writing through symlinks (even dangling ones) and keeping its mode."""
     real = Path(os.path.realpath(path))
     real.parent.mkdir(parents=True, exist_ok=True)
-    mode = real.stat().st_mode & 0o777 if real.exists() else 0o600
+    mode = mode or (real.stat().st_mode & 0o777 if real.exists() else 0o600)
     # A new, unpredictable staging file: a fixed name could be a planted symlink to another file.
     fd, tmp = tempfile.mkstemp(dir=real.parent, prefix=f'.{real.name}.', suffix='.arda-tmp')
     try:
-        with os.fdopen(fd, 'w', newline='') as handle:
+        with (os.fdopen(fd, 'wb') if isinstance(text, bytes) else
+              os.fdopen(fd, 'w', newline='', encoding='utf-8')) as handle:
             handle.write(text)
         os.chmod(tmp, mode)
         os.replace(tmp, real)
@@ -408,11 +462,12 @@ def _check_codex_rules(content, script):
     codex = shutil.which('codex')
     if not codex:
         return False
-    expected = [(['arda', 'peers'], 'allow'), ([str(script), 'peers'], 'allow'),
-                (['arda-trust', '--yes'], 'forbidden'), ([str(trust_script(script)), '--yes'], 'forbidden')]
+    expected = [*[([path, 'peers'], 'allow') for path in ['arda', *script_paths(script)]],
+                (['arda-trust', '--yes'], 'forbidden'), *[([path, '--yes'], 'forbidden')
+                                                          for path in trust_host_paths(script)]]
     with tempfile.TemporaryDirectory() as tmp:
         rules = Path(tmp) / 'arda.rules'
-        rules.write_text(content)
+        rules.write_text(content, encoding='utf-8')
         for command, decision in expected:
             proc = subprocess.run([codex, 'execpolicy', 'check', '--resolve-host-executables', '--rules',
                                    str(rules), *command], capture_output=True, text=True, timeout=60, check=False)

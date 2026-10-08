@@ -6,3 +6,6 @@ __pycache__/
 *.py[cod]
 .ruff_cache/
 .pytest_cache/
+
+# Written by arda-trust on Windows for this machine's Python.
+bin/arda.exe
