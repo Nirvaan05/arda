@@ -18,6 +18,7 @@ title = "ARDA: show setup"
 description = "Show whether ARDA peer messaging is approved, what approving it would change, and the command to run yourself in a terminal."
 contexts = ["global", "workspace"]
 command = ["python3", "-m", "arda", "setup"]
+platforms = ["linux"]
 
 [[actions]]
 id = "introduce"
@@ -41,4 +42,12 @@ title = "ARDA: introduce the agents to each other"
 description = "Tell every idle named agent in every reachable Herdr session and machine its ARDA address, its peers and how to reach them."
 contexts = ["global", "workspace"]
 command = ["py", "-3", "-X", "utf8", "-m", "arda", "introduce"]
+platforms = ["windows"]
+
+[[actions]]
+id = "setup-windows"
+title = "ARDA: show setup"
+description = "Show whether ARDA peer messaging is approved, what approving it would change, and the command to run yourself in a terminal."
+contexts = ["global", "workspace"]
+command = ["py", "-3", "-X", "utf8", "-m", "arda", "setup"]
 platforms = ["windows"]

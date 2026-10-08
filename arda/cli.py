@@ -381,11 +381,12 @@ def cmd_setup(herdr, args):
     agent harnesses offer no way to tell a user's click or keystroke in an agent's pane from an
     agent's own, so no in-pane shortcut can be shown to be the user's.
     """
-    script = ROOT / 'bin' / 'arda'
+    script = SCRIPT
     installed = trust.status(script)
     integrations = trust.integrations(herdr.binary if herdr else None)
     ready = all(line.endswith((': installed', ': allowed')) for line in installed)
-    command = shlex.quote(str(script.with_name('arda-trust')))
+    command = (f'py -I "{trust.trust_script(script)}"' if system.WINDOWS
+               else shlex.quote(str(trust.trust_script(script))))
     plan = trust.describe(script, revoke=False) + [
         f'{name}: install Herdr\'s {name} integration (herdr integration install {name})'
         for name in trust.harnesses()]
@@ -490,7 +491,7 @@ def listing(places, peers):
         for peer in here:
             note = '  (you)' if peer['you'] else ('' if peer['name'] else '  (unnamed: address it by pane ID)')
             cwd = peer['cwd'] or ''
-            if place.kind == 'session' and (cwd == home or cwd.startswith(home + '/')):
+            if place.kind == 'session' and (os.path.normcase(cwd) == os.path.normcase(home) or _below(cwd, home)):
                 cwd = '~' + cwd[len(home):]
             rows.append(f'  {STATE_MARK.get(peer["state"], "?")} {shown(peer["address"]):<{width["address"]}}  '
                         f'{shown(peer["agent"] or "?"):<{width["agent"]}}  {shown(peer["state"] or "?"):<{width["state"]}}'

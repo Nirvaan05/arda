@@ -10,7 +10,7 @@ import isolation
 from test_cli import CliCase, agent
 
 from arda import trust
-from arda.cli import SCRIPT, trust_main
+from arda.cli import ROOT, SCRIPT, trust_main
 
 WINDOWS = sys.platform == 'win32'
 if WINDOWS:  # arda-trust writes bin/arda.exe; the tests' copy goes to a temporary root, never the checkout
@@ -263,7 +263,7 @@ class TrustTests(CliCase):
         code, out, _ = self.run_cli('setup', '--json')  # arda itself, from an agent's pane: read-only
         data = json.loads(out)
         self.assertEqual((code, data['ready']), (0, False))
-        self.assertTrue(data['command'].endswith('arda-trust --yes'))
+        self.assertRegex(data['command'], r'arda-trust(\.py")? --yes$')  # Windows: py -I "...\arda-trust.py" --yes
         self.assertEqual(self.snapshot(), before)
         text = self.run_cli('setup')[1]
         self.assertIn('Run it yourself in a plain terminal', text)
