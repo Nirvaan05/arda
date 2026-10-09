@@ -4,6 +4,7 @@ import json
 
 from test_cli import CliCase, agent
 
+from arda.cli import command
 from arda.envelope import native_token, parse
 
 
@@ -35,7 +36,7 @@ class IdentityTests(CliCase):
         self.run_cli('task', '@codex', '--', 'do it')
         message = parse(self.prompts()[-1]['text'])
         self.assertEqual(message.sender, f'@claude.{TOKEN}')
-        self.assertIn(f'arda ack @claude.{TOKEN} ', self.prompts()[-1]['text'])
+        self.assertIn(f'{command()} ack @claude.{TOKEN} ', self.prompts()[-1]['text'])
 
     def test_path_references_and_unknown_sources_fall_back_to_the_terminal_hint(self):
         for ref in (session('/home/u/.pi/x.jsonl', source='herdr:pi', name='pi', kind='path'),

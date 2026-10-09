@@ -29,7 +29,8 @@ python3 -m unittest discover -s tests -v
 ruff check arda tests
 ```
 
-- Python 3.11+, standard library only, Linux.
+- Python 3.11+, standard library only, Linux and Windows. Windows setup uses pip's
+  bundled executable launcher; see [the Windows guide](docs/guides/windows.md).
 - Tests must never reach a real Herdr server: they use `tests/fake_herdr.py`, and
   `tests/isolation.py` must be imported first in every test module.
 - Do not add state, services or dependencies to ARDA.

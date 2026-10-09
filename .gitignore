@@ -1,8 +1,15 @@
 # Private development material, including research, plans, notes and experiments.
 .arda/
 
+# Generated launch videos and their working files.
+/brag/
+/brag-output/
+
 # Generated Python and tool caches.
 __pycache__/
 *.py[cod]
 .ruff_cache/
 .pytest_cache/
+
+# Written by arda-trust on Windows for this machine's Python.
+bin/arda.exe

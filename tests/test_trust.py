@@ -1,17 +1,23 @@
 import json
 import os
 import shutil
+import sys
 import unittest
 from pathlib import Path
 from unittest import mock
 
+import isolation
 from test_cli import CliCase, agent
 
 from arda import trust
-from arda.cli import ROOT, trust_main
+from arda.cli import ROOT, SCRIPT, trust_main
 
-SCRIPT = ROOT / 'bin' / 'arda'
-TRUST = ROOT / 'bin' / 'arda-trust'
+WINDOWS = sys.platform == 'win32'
+if WINDOWS:  # arda-trust writes bin/arda.exe; the tests' copy goes to a temporary root, never the checkout
+    SCRIPT = Path(isolation._ROOT) / 'install' / 'bin' / 'arda.exe'
+TRUST = trust.trust_script(SCRIPT)
+PATHS = [str(SCRIPT), *([SCRIPT.as_posix()] if WINDOWS else [])]  # Windows: also the forward-slash form
+EXE = '.exe' if WINDOWS else ''
 
 
 class TrustTests(CliCase):
@@ -25,11 +31,16 @@ class TrustTests(CliCase):
         (self.codex / 'AGENTS.md').write_text('# My own instructions\n')
         # A plain shell pane (no agent), and no codex binary so rules are not validated here.
         self.env.update(CLAUDE_CONFIG_DIR=str(self.claude), CODEX_HOME=str(self.codex), HERDR_PANE_ID='w1:p9',
-                        PATH='/usr/bin:/bin')
+                        PATH=os.pathsep.join(['/usr/bin', '/bin']))
         # Whatever the test runner itself runs in, never consult a real Herdr server.
         under_herdr = mock.patch('arda.cli._under_herdr', return_value=None)
         under_herdr.start()
         self.addCleanup(under_herdr.stop)
+        if WINDOWS:  # each test starts without arda.exe, which is in the tests' temporary root
+            self.addCleanup(SCRIPT.unlink, missing_ok=True)
+        script = mock.patch('arda.cli.SCRIPT', SCRIPT)
+        script.start()
+        self.addCleanup(script.stop)
 
     def run_trust(self, *argv, **options):
         return self.run_cli(*argv, entry=trust_main, **options)
@@ -44,6 +55,21 @@ class TrustTests(CliCase):
         self.assertEqual(self.settings(), {'model': 'x'})
         self.assertFalse((self.claude / 'rules' / 'arda.md').exists())
         self.assertFalse((self.codex / 'rules' / 'arda.rules').exists())
+
+    def test_windows_revoke_works_without_pips_launcher(self):
+        script = Path(self.tmp.name) / 'bin' / 'arda.exe'
+        with mock.patch('arda.trust.WINDOWS', True), mock.patch('arda.cli.SCRIPT', script):
+            with mock.patch('arda.trust.launcher', return_value=b'existing launcher'):
+                self.assertEqual(self.run_trust('--yes')[0], 0)
+            self.assertIn('Bash(arda *)', self.settings()['permissions']['allow'])
+            with mock.patch('arda.trust.launcher', side_effect=trust.TrustError('pip is not installed')):
+                code, _, err = self.run_trust('--revoke', '--yes')
+            self.assertEqual(code, 0, err)
+        self.assertEqual(script.read_bytes(), b'existing launcher')
+        self.assertFalse((self.claude / 'rules' / 'arda.md').exists())
+        self.assertFalse((self.codex / 'rules' / 'arda.rules').exists())
+        self.assertEqual(self.settings(), {'model': 'x', 'permissions': {'allow': ['Bash(ls)']}})
+        self.assertEqual((self.codex / 'AGENTS.md').read_text(), '# My own instructions\n')
 
     def test_grant_then_revoke_restores_files_byte_for_byte(self):
         shapes = ['# Mine\r\nCRLF line\r\n', '# Mine\n\n\n', '# Mine\nno final newline', '']
@@ -104,11 +130,12 @@ class TrustTests(CliCase):
         self.assertIn('arda reject', rules)
         settings = self.settings()
         self.assertEqual(settings['model'], 'x')
-        self.assertEqual(settings['permissions']['allow'], ['Bash(ls)', 'Bash(arda *)', f'Bash({SCRIPT} *)'])
-        self.assertEqual(settings['permissions']['deny'], ['Bash(arda-trust)', 'Bash(arda-trust *)',
-                                                           f'Bash({TRUST})', f'Bash({TRUST} *)'])
+        self.assertEqual(settings['permissions']['allow'], ['Bash(ls)', 'Bash(arda *)',
+                                                            *[f'Bash({path} *)' for path in PATHS]])
+        self.assertEqual(settings['permissions']['deny'][:4], ['Bash(arda-trust)', 'Bash(arda-trust *)',
+                                                               f'Bash({TRUST})', f'Bash({TRUST} *)'])
         self.assertIn('decision="forbidden"', (self.codex / 'rules' / 'arda.rules').read_text())
-        self.assertIn(json.dumps([str(SCRIPT)]), (self.codex / 'rules' / 'arda.rules').read_text())
+        self.assertIn(json.dumps(PATHS), (self.codex / 'rules' / 'arda.rules').read_text())
         agents = (self.codex / 'AGENTS.md').read_text()
         self.assertTrue(agents.startswith('# My own instructions\n\n<!-- arda-trust:begin -->'))
         self.assertEqual(agents.count('arda-trust:begin'), 1)
@@ -164,8 +191,8 @@ class TrustTests(CliCase):
     def test_grant_refuses_when_the_arda_on_path_is_another_install(self):
         bindir = Path(self.tmp.name) / 'bin'
         bindir.mkdir()
-        (bindir / 'arda').symlink_to('/bin/true')  # an older checkout, or anything else named arda
-        code, _, err = self.run_trust('--yes', env={'PATH': f'{bindir}:/usr/bin:/bin'})
+        (bindir / f'arda{EXE}').symlink_to(sys.executable if WINDOWS else '/bin/true')  # anything else named arda
+        code, _, err = self.run_trust('--yes', env={'PATH': os.pathsep.join([str(bindir), '/usr/bin', '/bin'])})
         self.assertEqual(code, 2)
         self.assertIn('is not this installation', err)
         self.assertFalse((self.claude / 'rules').exists())
@@ -186,10 +213,12 @@ class TrustTests(CliCase):
     def test_a_path_link_outside_a_bin_directory_is_revoked_too(self):
         commands = Path(self.tmp.name) / 'commands'
         commands.mkdir()
-        (commands / 'arda').symlink_to(SCRIPT)
-        path = {'PATH': f'{commands}:/usr/bin:/bin'}
+        SCRIPT.parent.mkdir(parents=True, exist_ok=True)
+        SCRIPT.touch()  # the link's target, as on Linux; on Windows arda-trust writes the real one over it
+        (commands / f'arda{EXE}').symlink_to(SCRIPT)
+        path = {'PATH': os.pathsep.join([str(commands), '/usr/bin', '/bin'])}
         self.assertEqual(self.run_trust('--yes', env=path)[0], 0)
-        self.assertIn(f'Bash({commands}/arda *)', self.settings()['permissions']['allow'])
+        self.assertIn(f'Bash({commands / f"arda{EXE}"} *)', self.settings()['permissions']['allow'])
         self.assertEqual(self.run_trust('--revoke', '--yes')[0], 0)  # even with the link no longer on PATH
         self.assertEqual(self.settings()['permissions'], {'allow': ['Bash(ls)']})
 
@@ -249,7 +278,7 @@ class TrustTests(CliCase):
         code, out, _ = self.run_cli('setup', '--json')  # arda itself, from an agent's pane: read-only
         data = json.loads(out)
         self.assertEqual((code, data['ready']), (0, False))
-        self.assertTrue(data['command'].endswith('arda-trust --yes'))
+        self.assertRegex(data['command'], r'arda-trust(\.py")? --yes$')  # Windows: py -I "...\arda-trust.py" --yes
         self.assertEqual(self.snapshot(), before)
         text = self.run_cli('setup')[1]
         self.assertIn('Run it yourself in a plain terminal', text)
@@ -332,7 +361,8 @@ class TrustTests(CliCase):
         self.assertEqual(self.run_trust('--yes')[0], 0)
         self.assertTrue(link.is_symlink())
         self.assertIn('Bash(arda *)', json.loads(real.read_text())['permissions']['allow'])
-        self.assertEqual(real.stat().st_mode & 0o777, 0o600)
+        if not WINDOWS:  # Windows file modes have no permission bits to keep
+            self.assertEqual(real.stat().st_mode & 0o777, 0o600)
 
     def test_unexpected_settings_stop_the_change_before_anything_is_written(self):
         for bad in ('[]', '{not json', '{"permissions": []}', '{"permissions": {"allow": "x"}}',
@@ -349,11 +379,26 @@ class TrustTests(CliCase):
         self.assertFalse(self.codex.exists())
         self.assertTrue((self.claude / 'rules' / 'arda.md').exists())
 
+    @unittest.skipUnless(WINDOWS, 'bin/arda.exe exists on Windows only')
+    def test_windows_grant_writes_the_arda_command_and_revoke_keeps_it(self):
+        code, out, _ = self.run_trust()
+        self.assertEqual(code, 0)
+        self.assertIn(f'arda: write {SCRIPT}, which runs ARDA with {sys.executable}', out)
+        self.assertFalse(SCRIPT.exists())  # a plan changes nothing
+        self.assertEqual(self.run_trust('--yes')[0], 0)
+        self.assertEqual(SCRIPT.read_bytes(), trust.launcher(SCRIPT))
+        self.assertIn(f'arda: {SCRIPT}: installed', self.run_trust('--status')[1])
+        SCRIPT.write_bytes(b'an arda.exe for another Python')
+        self.assertIn('for another Python or install', self.run_trust('--status')[1])
+        self.assertEqual(self.run_trust('--revoke', '--yes')[0], 0)
+        self.assertTrue(SCRIPT.exists())  # the command stays; without trust it asks for approval like any other
+
     @unittest.skipUnless(shutil.which('codex'), 'codex is not installed')
     def test_codex_accepts_the_generated_rules(self):
         # raises unless Codex allows arda and forbids `arda-trust` with these rules
-        trust._check_codex_rules(trust.CODEX_RULES.format(paths=json.dumps([str(SCRIPT)]),
-                                                          trust_paths=json.dumps([str(TRUST)])), SCRIPT)
+        trust._check_codex_rules(trust.CODEX_RULES.format(paths=json.dumps(PATHS),
+                                                          trust_paths=json.dumps(trust.trust_host_paths(SCRIPT))),
+                                 SCRIPT)
         with self.assertRaises(trust.TrustError):
             trust._check_codex_rules('prefix_rule(pattern=["arda"], decision="allow")\n', SCRIPT)
 

@@ -16,10 +16,57 @@ reply (exiting with "raw_exit", default 0); optional "shell_pid" is the pane she
 process that ran this fake).
 """
 
-import fcntl
 import json
 import os
 import sys
+from pathlib import Path
+
+if sys.platform == 'win32':
+    import msvcrt
+
+    def flock(handle):
+        import time
+        while True:
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)  # LK_LOCK would retry only once a second
+                return
+            except OSError:
+                time.sleep(0.01)
+else:
+    import fcntl
+
+    def flock(handle):
+        fcntl.flock(handle, fcntl.LOCK_EX)
+
+
+def install(directory):
+    """Make an executable `herdr` in directory that runs this fake, and return its path.
+
+    On Windows it is a real .exe, as Herdr is (pip's script launcher with this fake attached),
+    so arguments reach the fake exactly as CreateProcess passes them to Herdr, with no cmd.exe
+    parsing in between. It reports its caller as the process that ran the launcher.
+    """
+    directory = Path(directory)
+    if sys.platform != 'win32':
+        binary = directory / 'herdr'
+        binary.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{__file__}" "$@"\n')
+        binary.chmod(0o755)
+        return binary
+    import io
+    import zipfile
+
+    from pip._vendor import distlib
+    root = Path(__file__).resolve().parent.parent
+    stub = (f'import os, runpy, sys\nsys.path.insert(0, {str(root)!r})\nfrom arda import system\n'
+            f'os.environ["FAKE_HERDR_CALLER"] = str(system.parent(os.getppid()))\n'
+            f'sys.argv[0] = {__file__!r}\nrunpy.run_path({__file__!r}, run_name="__main__")\n')
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, 'w') as zf:
+        zf.writestr('__main__.py', stub)
+    launcher = (Path(distlib.__file__).parent / 't64.exe').read_bytes()
+    binary = directory / 'herdr.exe'
+    binary.write_bytes(launcher + f'#!"{sys.executable}"\r\n'.encode() + archive.getvalue())
+    return binary
 
 
 def reply(result=None, error=None):
@@ -39,7 +86,7 @@ def main(argv):
     path = os.environ['FAKE_HERDR_STATE']
     # ARDA asks several places in parallel; serialise access to the state file.
     lock = open(path + '.lock', 'w')  # noqa: SIM115 - held until this process exits
-    fcntl.flock(lock, fcntl.LOCK_EX)
+    flock(lock)
     with open(path) as handle:
         state = json.load(handle)
     state.setdefault('calls', []).append(argv)
@@ -57,7 +104,7 @@ def main(argv):
             import time
             lock.close()  # a hung machine must not hold up calls to other places
             if machine.get('hang_child'):
-                child = subprocess.Popen(['sleep', str(machine['hang'])])
+                child = subprocess.Popen([sys.executable, '-c', f'import time; time.sleep({machine["hang"]})'])
                 with open(machine['hang_child'], 'w') as handle:
                     handle.write(str(child.pid))
             time.sleep(machine['hang'])
@@ -113,8 +160,9 @@ def main(argv):
         reply(error='pane_not_found')
     if argv[:3] == ['pane', 'process-info', '--pane']:
         # By default the caller (the test process running arda) is the pane's shell.
+        caller = int(os.environ.get('FAKE_HERDR_CALLER') or os.getppid())
         reply({'type': 'pane_process_info',
-               'process_info': {'pane_id': argv[3], 'shell_pid': state.get('shell_pid', os.getppid())}})
+               'process_info': {'pane_id': argv[3], 'shell_pid': state.get('shell_pid', caller)}})
     if argv[:2] == ['pane', 'report-metadata']:
         target, rest = find(argv[2]), argv[3:]
         tokens = target.setdefault('tokens', {})

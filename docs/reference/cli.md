@@ -23,6 +23,10 @@
 `<to>` is an address such as `@reviewer`, `@reviewer@desktop` or a reply address copied
 from a message (`@implementer.s…`). See [addresses](../protocol.md#addresses).
 
+On Windows, the approval command is `py -I "<plugin-root>\bin\arda-trust.py"` with the
+same options. It also creates the `arda.exe` launcher. See the
+[Windows guide](../guides/windows.md) for setup.
+
 ## Message text
 
 | Rule | Example |
@@ -34,7 +38,10 @@ from a message (`@implementer.s…`). See [addresses](../protocol.md#addresses).
 - `--` stops the text from being read as an option; single quotes stop the shell from
   expanding it.
 - A body is at most 32,000 bytes of UTF-8. Put larger content in a file and refer to it.
-- `--file` reads only visible files from the working directory or `/tmp`.
+- `--file` reads only visible files from the working directory or the accepted temporary
+  directory: `/tmp` on Linux, or the user's default `AppData\Local\Temp` on Windows.
+  Caller-supplied `TMPDIR` and `TEMP` do not change
+  the accepted temporary directory; dot names and Windows hidden attributes are refused.
 - Control and invisible characters are removed from message text before it is typed.
 
 ## Options
@@ -85,6 +92,9 @@ Each peer in `peers` has `address`, `name`, `agent` (harness), `state`, `place`,
 
 Run from Herdr (`herdr plugin action invoke <id> --plugin arda`), they also show their
 result as a Herdr notification.
+
+Linux action IDs are `status`, `setup` and `introduce`. Windows action IDs are
+`status-windows`, `setup-windows` and `introduce-windows`.
 
 ## Skills
 

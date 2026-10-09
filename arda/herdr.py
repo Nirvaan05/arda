@@ -6,10 +6,10 @@ interface, and inside a Herdr pane it already targets the caller's session.
 
 import contextlib
 import json
-import os
 import re
-import signal
 import subprocess
+
+from . import system
 
 # How Herdr 0.9.3 reports a saved machine it cannot use, most specific first. Each of
 # these happens before a request reaches the machine's Herdr server, so nothing was sent.
@@ -44,13 +44,12 @@ PROMPT_TIMEOUT = 20
 def _run(argv, timeout):
     """Run a herdr command. If it overruns or is interrupted, stop it and every process it
     started, such as the ssh of a saved machine, rather than leaving them behind."""
-    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                            start_new_session=True)
+    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8',
+                            errors='replace', **system.POPEN)
     try:
         out, err = proc.communicate(timeout=timeout)
     except BaseException:
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(proc.pid, signal.SIGKILL)
+        system.kill_tree(proc)
         with contextlib.suppress(subprocess.TimeoutExpired):
             proc.communicate(timeout=2)
         raise

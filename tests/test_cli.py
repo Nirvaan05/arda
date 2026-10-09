@@ -2,7 +2,6 @@ import contextlib
 import io
 import json
 import os
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +9,11 @@ from unittest import mock
 
 import isolation  # noqa: F401  (before any test runs: keeps tests away from real Herdr)
 
+# Keep isolation ahead of imports that can reach a Herdr server.
+# isort: split
+import fake_herdr
+
+from arda import system
 from arda.cli import main
 from arda.envelope import MAX_BODY, native_token, parse
 
@@ -28,9 +32,7 @@ class CliCase(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         tmp = Path(self.tmp.name)
         self.state_path = tmp / 'state.json'
-        binary = tmp / 'herdr'
-        binary.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{FAKE}" "$@"\n')
-        binary.chmod(0o755)
+        binary = fake_herdr.install(tmp)
         self.env = {'HERDR_BIN_PATH': str(binary), 'FAKE_HERDR_STATE': str(self.state_path),
                     'HERDR_PANE_ID': 'w1:p1'}
         # Whatever the test runner itself runs in, act as outside Herdr: ARDA then takes herdr from
@@ -242,7 +244,8 @@ class CliTests(CliCase):
         self.assertIn('now waiting at an approval or question prompt', result['detail'])
 
     def test_file_must_be_in_the_working_directory_or_temp(self):
-        outside = '/etc/passwd'  # a real file outside the working directory and /tmp
+        # a real file outside the working directory and /tmp (Windows: the user's temp directory)
+        outside = os.path.join(os.environ['SYSTEMROOT'], 'win.ini') if os.name == 'nt' else '/etc/passwd'
         code, _, err = self.run_cli('send', '@codex', '--file', outside)
         self.assertEqual((code, self.prompts()), (2, []))
         self.assertIn('--file must be in the working directory', err)
@@ -290,6 +293,31 @@ class CliTests(CliCase):
             os.chdir(old_cwd)
         self.assertEqual(self.prompts(), [])
 
+    @unittest.skipUnless(os.name == 'nt', 'Windows hidden attribute and temp directory')
+    def test_windows_hidden_means_the_attribute_too_and_temp_is_exempt_only_below_it(self):
+        import subprocess
+        home = Path(self.tmp.name) / 'home'
+        temp = home / 'AppData' / 'Local' / 'Temp'  # the user's default temp directory, inside hidden AppData
+        (temp / '.cache').mkdir(parents=True)
+        (temp / 'note.md').write_text('from temp')
+        (temp / '.cache' / 'key').write_text('x')
+        (home / 'AppData' / 'Local' / 'secrets.txt').write_text('x')
+        (home / 'project' / 'private').mkdir(parents=True)
+        (home / 'project' / 'private' / 'key').write_text('x')
+        for hidden in (home / 'AppData', home / 'project' / 'private'):
+            subprocess.run(['attrib', '+h', str(hidden)], check=True)
+        old_cwd = os.getcwd()
+        try:
+            with mock.patch('arda.cli.real_home', return_value=str(home)):
+                os.chdir(home / 'project')
+                for refused in (temp / '.cache' / 'key', home / 'AppData' / 'Local' / 'secrets.txt',
+                                Path('private') / 'key'):
+                    self.assertEqual(self.run_cli('send', '@codex', '--file', str(refused))[0], 2, refused)
+                self.assertEqual(self.run_cli('send', '@codex', '--file', str(temp / 'note.md'))[0], 0)
+        finally:
+            os.chdir(old_cwd)
+        self.assertEqual([parse(p['text']).body for p in self.prompts()], ['from temp'])
+
     def test_an_oversized_file_is_refused_not_truncated(self):
         big = Path(self.tmp.name) / 'big.txt'
         big.write_text('x' + ' ' * (4 * MAX_BODY) + 'TAIL')  # padding that cleaning would strip
@@ -297,6 +325,7 @@ class CliTests(CliCase):
         self.assertEqual((code, self.prompts()), (2, []))
         self.assertIn('nothing was sent', err)
 
+    @unittest.skipUnless(hasattr(os, 'mkfifo'), 'no FIFOs here')
     def test_a_fifo_is_refused_without_blocking(self):
         fifo = Path(self.tmp.name) / 'pipe'
         os.mkfifo(fifo)
@@ -304,16 +333,22 @@ class CliTests(CliCase):
         self.assertEqual((code, self.prompts()), (2, []))
         self.assertIn('must be a regular file', err)
 
+    @unittest.skipUnless(os.name == 'nt', 'Windows devices')
+    def test_a_device_is_refused_without_reading_it(self):
+        for device in ('NUL', 'CON'):  # CON would wait for the console to type something
+            code, _, err = self.run_cli('send', '@codex', '--file', device)
+            self.assertEqual((code, self.prompts()), (2, []), f'{device}: {err}')
+
     def test_the_herdr_arda_runs_is_never_chosen_by_the_caller(self):
         from arda import cli
         mock.patch.stopall()  # the real herdr_binary, not the fake set up for the other tests
         home = Path(self.tmp.name) / 'home'
         (home / '.local' / 'bin').mkdir(parents=True)
-        caller = {'HERDR_BIN_PATH': '/tmp/not-herdr', 'PATH': f'{self.tmp.name}:/usr/bin:/bin'}
+        caller = {'HERDR_BIN_PATH': '/tmp/not-herdr', 'PATH': os.pathsep.join([self.tmp.name, '/usr/bin', '/bin'])}
         with mock.patch.dict(os.environ, caller), mock.patch('arda.cli.real_home', return_value=str(home)), \
                 mock.patch('arda.cli.HERDR_PLACES', ('.local/bin/herdr',)):
             with mock.patch('arda.cli._under_herdr', return_value=os.getpid()):  # inside Herdr: the server's
-                self.assertEqual(cli.herdr_binary(), os.readlink(f'/proc/{os.getpid()}/exe'))
+                self.assertEqual(cli.herdr_binary(), system.executable(os.getpid()))
             with mock.patch('arda.cli._under_herdr', return_value=None):         # outside: installed place only
                 with self.assertRaises(cli.UsageError):
                     cli.herdr_binary()

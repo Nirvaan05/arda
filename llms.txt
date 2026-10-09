@@ -18,6 +18,7 @@ Key facts: messages are note, task_request, ack, result and reject. Agents run `
 
 - [Claude Code](docs/guides/claude-code.md)
 - [Codex](docs/guides/codex.md)
+- [Windows](docs/guides/windows.md)
 - [Multi-machine](docs/guides/multi-machine.md)
 - [Trust and consent](docs/guides/trust-and-consent.md)
 - [Troubleshooting](docs/troubleshooting.md)

@@ -76,10 +76,12 @@ Nothing. Every send asks Herdr again.
 | --- | --- |
 | [`bin/arda`](../bin/arda) | Entry point. Runs the plugin's code with the system `python3` in isolated mode, wherever it is linked from. |
 | [`bin/arda-trust`](../bin/arda-trust) | Separate entry point for the user's one-time approval. |
+| [`bin/arda-trust.py`](../bin/arda-trust.py) | Windows approval entry point. Also writes the local `bin/arda.exe` launcher. |
 | [`arda/cli.py`](../arda/cli.py) | Commands, identity of the caller, delivery, `peers` listing, `describe`. |
 | [`arda/envelope.py`](../arda/envelope.py) | Addresses, message types, wire format, text cleaning, native tokens. |
 | [`arda/topology.py`](../arda/topology.py) | Places (sessions and saved machines), surveys, strict name resolution. |
 | [`arda/herdr.py`](../arda/herdr.py) | Calls to the `herdr` CLI, timeouts, failure classes for saved machines. |
+| [`arda/system.py`](../arda/system.py) | Process ancestry, executable paths, opened files and user directories on Linux and Windows. |
 | [`arda/harness.py`](../arda/harness.py) | `--model auto`: the model from the agent's own session log. |
 | [`arda/trust.py`](../arda/trust.py) | What `arda-trust` writes into Claude Code and Codex configuration. |
 | [`herdr-plugin.toml`](../herdr-plugin.toml) | Plugin manifest: actions **ARDA status**, **ARDA: show setup** and **ARDA: introduce the agents to each other**. |
@@ -90,10 +92,11 @@ Nothing. Every send asks Herdr again.
 
 | | |
 | --- | --- |
-| Platform | Linux |
+| Platform | Linux or Windows |
 | Python | 3.11 or later, standard library only |
+| Windows setup | A python.org installation with pip to create and check the `arda.exe` launcher; see the [Windows guide](guides/windows.md) |
 | Herdr | 0.9.3 or later |
-| Agents | Any agent Herdr can prompt; tested with Claude Code and Codex |
+| Agents | Any agent Herdr can prompt; verified with Claude Code, Codex, OpenCode and Gemini |
 
 ## Limits
 
@@ -105,8 +108,8 @@ Nothing. Every send asks Herdr again.
   lookup gives up after 5 seconds on this machine and 15 on a saved machine; a whole survey
   stops after 30 seconds.
 - Self-descriptions are unverified claims, at most 80 characters per field.
-- ARDA has no adapters for sandboxes or cloud runtimes. Their agents can take part once
-  Herdr can reach them.
+- Sandboxed and cloud agents are **VERIFIED** through Herdr's routing. The runtime must
+  allow ARDA's commands and connections; no runtime-specific adapter is required.
 
 ## Next
 

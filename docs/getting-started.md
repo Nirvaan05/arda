@@ -3,6 +3,10 @@
 > **From nothing to a first handoff** between two agents in about ten minutes. Every
 > command here is the real command; nothing is shortened.
 
+The shell commands below use Linux syntax. On Windows, follow the
+[Windows guide](guides/windows.md) for installation, approval, plugin actions and Codex
+setup, then use the same ARDA messaging commands.
+
 | Step | What | Command |
 | --- | --- | --- |
 | 1 | Install Herdr | see [herdr.dev](https://herdr.dev) |
@@ -17,10 +21,10 @@
 
 | | |
 | --- | --- |
-| Platform | Linux |
+| Platform | Linux or Windows |
 | Python | 3.11 or later (standard library only) |
 | Herdr | 0.9.3 or later |
-| Agents | Claude Code and Codex are tested; other agents Herdr can prompt are not tested yet |
+| Agents | Claude Code, Codex and other agents Herdr can prompt, including OpenCode and Gemini, are verified |
 
 ## 1. Install Herdr
 

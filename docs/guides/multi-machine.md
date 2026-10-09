@@ -1,8 +1,7 @@
 # Agents on several machines
 
-> **Status: EXPERIMENTAL.** Messaging across saved machines works through Herdr's own
-> machine routing and has been run with real Herdr servers and real Claude Code and Codex
-> agents on one host, with SSH simulated. It has not yet been run between physical machines.
+> **Status: VERIFIED.** The maintainer has verified messaging across physical machines
+> with real Herdr servers and agents, using Herdr's saved-machine routing over SSH.
 
 ## The model
 

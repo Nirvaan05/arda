@@ -5,7 +5,7 @@ import dataclasses
 import hashlib
 import json
 import os
-import pwd
+import re
 import shlex
 import shutil
 import stat
@@ -15,7 +15,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import __version__, harness, trust
+from . import __version__, harness, system, trust
 from .envelope import (
     MAX_BODY,
     PROTOCOL,
@@ -32,6 +32,7 @@ from .herdr import Herdr, HerdrError
 from .topology import Unresolved, discover, policy, resolution, resolve, survey
 
 ROOT = Path(__file__).resolve().parent.parent
+SCRIPT = ROOT / 'bin' / ('arda.exe' if system.WINDOWS else 'arda')  # arda.exe is written by arda-trust
 CONFIRM_MS = 15000
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_UNCERTAIN = 0, 1, 2, 3
 
@@ -56,21 +57,21 @@ class UsageError(Exception):
 
 def command():
     """How another agent should invoke ARDA in the reply instructions we send it."""
-    script = ROOT / 'bin' / 'arda'
+    script = SCRIPT
     found = shutil.which('arda')
     if found and Path(found).resolve() == script.resolve():
         return 'arda'
     if clean(str(script)) != str(script):  # a path with control characters cannot be typed safely
         return 'arda'
+    if system.WINDOWS:
+        # Agents on Windows type commands into Git Bash (Claude Code) or PowerShell (Codex), which quote
+        # differently; a path with forward slashes and no characters to quote runs as typed in both.
+        return script.as_posix() if re.fullmatch(r'[A-Za-z0-9_.:/-]+', script.as_posix()) else 'arda'
     return shlex.quote(str(script))
 
 
 def _parent(pid):
-    try:
-        with open(f'/proc/{pid}/stat') as handle:
-            return int(handle.read().rsplit(')', 1)[1].split()[1])
-    except (OSError, ValueError, IndexError):
-        return 0
+    return system.parent(pid)
 
 
 def runs_in_pane(herdr, pane):
@@ -207,12 +208,38 @@ def deliver(place, route, message, force=False, skip_busy=False, expect=None):
 
 
 def real_home():
-    """The user's home directory from the user database: $HOME is the caller's to set."""
-    return os.path.realpath(pwd.getpwuid(os.getuid()).pw_dir)
+    return system.real_home()
+
+
+def temp_root():
+    """The shared temporary directory --file accepts: /tmp, or on Windows the user's default temp
+    directory; never $TMPDIR or %TEMP%, which the caller sets."""
+    return os.path.join(real_home(), 'AppData', 'Local', 'Temp') if system.WINDOWS else '/tmp'
+
+
+def _hidden(path, root):
+    """Whether any component of path below root is hidden: a dot name, or on Windows the hidden attribute."""
+    probe = root
+    for part in os.path.relpath(path, root).split(os.sep):
+        probe = os.path.join(probe, part)
+        if part.startswith('.'):
+            return True
+        if system.WINDOWS:
+            try:
+                if os.stat(probe, follow_symlinks=False).st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN:
+                    return True
+            except OSError:
+                return True
+    return False
+
+
+def _below(path, root):
+    """Whether path is strictly inside root, comparing as the file system does (case-blind on Windows)."""
+    return os.path.normcase(path).startswith(os.path.normcase(root).rstrip(os.sep) + os.sep)
 
 
 def check_file_path(real, path):
-    """A --file must be a visible file in the working directory or /tmp.
+    """A --file must be a visible file in the working directory or /tmp (Windows: the user's temp directory).
 
     Agents may run arda without a per-command prompt once the user approved
     ARDA, so --file must not become an easy way to send keys, credentials or
@@ -220,37 +247,44 @@ def check_file_path(real, path):
     $TMPDIR, so none of them may make a hidden path acceptable: any hidden path
     component below the real home directory is refused wherever the caller
     stands, $TMPDIR is ignored in favour of /tmp, and the home directory, / and
-    their ancestors never count as a working directory. This is a narrow guard
-    against accidents, not a boundary against a determined agent that can read
-    the file itself.
+    their ancestors never count as a working directory. On Windows, hidden also
+    means the hidden attribute (AppData is hidden), %TEMP% is ignored in favour
+    of the user's default temp directory, and any drive root counts as /. This
+    is a narrow guard against accidents, not a boundary against a determined
+    agent that can read the file itself.
     """
-    home = real_home()
-    if real.startswith(home + '/') and any(part.startswith('.') for part in os.path.relpath(real, home).split('/')):
+    home, temp = real_home(), os.path.realpath(temp_root())
+    # Below a temp directory inside home (Windows: in hidden AppData), only what is below it counts.
+    top = temp if _below(real, temp) and _below(temp, home) else home
+    if _below(real, home) and _hidden(real, top):
         raise UsageError('--file cannot be a hidden file or inside a hidden directory')
 
     def usable(root):
-        return root != '/' and not (home + '/').startswith(root.rstrip('/') + '/')
+        top = os.path.dirname(root) == root  # / or a drive root
+        return not top and not (_below(home, root) or os.path.normcase(home) == os.path.normcase(root))
 
-    for root in dict.fromkeys(os.path.realpath(p) for p in (os.getcwd(), '/tmp')):
-        if usable(root) and real.startswith(root.rstrip('/') + '/'):
-            if any(part.startswith('.') for part in os.path.relpath(real, root).split('/')):
+    for root in dict.fromkeys(os.path.realpath(p) for p in (os.getcwd(), temp)):
+        if usable(root) and _below(real, root):
+            if _hidden(real, root):
                 raise UsageError('--file cannot be a hidden file or inside a hidden directory')
             return
-    raise UsageError(f'--file must be in the working directory (not your home directory) or in /tmp: {path}; '
-                     'copy the content there, or pass it as text')
+    raise UsageError(f'--file must be in the working directory (not your home directory) or in {temp_root()}: '
+                     f'{path}; copy the content there, or pass it as text')
 
 
 def read_file(path):
     """Read a --file, checking the file that was actually opened, so it cannot be swapped after the check."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY | os.O_CLOEXEC)  # a FIFO never blocks
+        # A FIFO never blocks. Windows has none of these flags, and no FIFOs to open.
+        fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_NOCTTY', 0)
+                     | getattr(os, 'O_CLOEXEC', 0) | getattr(os, 'O_BINARY', 0))
     except OSError as err:
         raise UsageError(f'cannot open --file {path}: {err.strerror}') from None
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
             raise UsageError(f'--file must be a regular file: {path}')
-        check_file_path(os.readlink(f'/proc/self/fd/{fd}'), path)
+        check_file_path(system.opened_path(fd), path)
         limit = 4 * MAX_BODY  # room for characters cleaning removes; the body limit is checked after
         data = b''
         while chunk := os.read(fd, 65536):
@@ -347,11 +381,12 @@ def cmd_setup(herdr, args):
     agent harnesses offer no way to tell a user's click or keystroke in an agent's pane from an
     agent's own, so no in-pane shortcut can be shown to be the user's.
     """
-    script = ROOT / 'bin' / 'arda'
+    script = SCRIPT
     installed = trust.status(script)
     integrations = trust.integrations(herdr.binary if herdr else None)
     ready = all(line.endswith((': installed', ': allowed')) for line in installed)
-    command = shlex.quote(str(script.with_name('arda-trust')))
+    command = (f'py -I "{trust.trust_script(script)}"' if system.WINDOWS
+               else shlex.quote(str(trust.trust_script(script))))
     plan = trust.describe(script, revoke=False) + [
         f'{name}: install Herdr\'s {name} integration (herdr integration install {name})'
         for name in trust.harnesses()]
@@ -456,7 +491,7 @@ def listing(places, peers):
         for peer in here:
             note = '  (you)' if peer['you'] else ('' if peer['name'] else '  (unnamed: address it by pane ID)')
             cwd = peer['cwd'] or ''
-            if place.kind == 'session' and (cwd == home or cwd.startswith(home + '/')):
+            if place.kind == 'session' and (os.path.normcase(cwd) == os.path.normcase(home) or _below(cwd, home)):
                 cwd = '~' + cwd[len(home):]
             rows.append(f'  {STATE_MARK.get(peer["state"], "?")} {shown(peer["address"]):<{width["address"]}}  '
                         f'{shown(peer["agent"] or "?"):<{width["agent"]}}  {shown(peer["state"] or "?"):<{width["state"]}}'
@@ -574,13 +609,14 @@ def cmd_introduce(herdr, args):
 def _under_herdr():
     """The pid of a Herdr server among this process's ancestors (every Herdr pane has one), or None."""
     pid = _parent(os.getpid())
-    while pid > 1:
-        try:
-            with open(f'/proc/{pid}/comm') as handle:
-                if handle.read().strip() == 'herdr':
-                    return pid
-        except OSError:
+    seen = set()
+    while pid > 1 and pid not in seen:
+        comm = system.name(pid)
+        if comm is None:
             return None
+        if comm == 'herdr':
+            return pid
+        seen.add(pid)
         pid = _parent(pid)
     return None
 
@@ -603,15 +639,13 @@ def refuse_agents(herdr):
                          'run arda-trust yourself in a terminal')
     binary = herdr.binary
     if type(server) is int:
-        try:
-            binary = os.readlink(f'/proc/{server}/exe')
-        except OSError:
-            pass
+        binary = system.executable(server) or binary
     local = Herdr(binary=binary)
     try:
         if not runs_in_pane(local, pane):
             raise UsageError(f'this is not running in the pane HERDR_PANE_ID names ({pane}); if this is your own '
-                             'terminal, run: env -u HERDR_PANE_ID arda-trust')
+                             'terminal, run: ' + ('set HERDR_PANE_ID= && arda-trust' if system.WINDOWS
+                                                  else 'env -u HERDR_PANE_ID arda-trust'))
         local.agent(pane)
     except HerdrError as err:
         if err.code == 'agent_not_found':
@@ -632,7 +666,7 @@ def cmd_trust_moved(herdr, args):
 
 def grant_trust(herdr, args):
     """Record, show or revoke the user's approval of ARDA peer communication (arda-trust)."""
-    script = ROOT / 'bin' / 'arda'
+    script = SCRIPT
     with_integrations = not args.revoke and not getattr(args, 'no_integrations', False)
     if args.status:
         lines = trust.status(script) + trust.integrations(herdr.binary)
@@ -886,7 +920,9 @@ def fail(herdr, args, code, detail, exit_code):
     return exit_code
 
 
-HERDR_PLACES = ('.local/bin/herdr', '/usr/local/bin/herdr', '/usr/bin/herdr')  # where Herdr's installers put it
+# Where Herdr's installers put it; relative places are under the real home directory.
+HERDR_PLACES = (('AppData/Local/Programs/Herdr/bin/herdr.exe',) if system.WINDOWS
+                else ('.local/bin/herdr', '/usr/local/bin/herdr', '/usr/bin/herdr'))
 
 
 def herdr_binary():
@@ -898,17 +934,16 @@ def herdr_binary():
     where its installers put it, under the real home directory or the system.
     """
     server = _under_herdr()
-    if type(server) is int:
-        try:
-            return os.readlink(f'/proc/{server}/exe').removesuffix(' (deleted)')  # updated since: same path
-        except OSError:
-            pass
+    if type(server) is int and (found := system.executable(server)):
+        return found
     for place in HERDR_PLACES:
-        candidate = os.path.join(real_home(), place)  # absolute places stay as they are
+        candidate = os.path.normpath(os.path.join(real_home(), place))  # absolute places stay as they are
         if os.access(candidate, os.X_OK):
             return candidate
-    raise UsageError('cannot find herdr in ~/.local/bin, /usr/local/bin or /usr/bin; ARDA does not take it from '
-                     'HERDR_BIN_PATH or PATH, which whoever runs it can set')
+    sandbox = (' If this runs in an agent sandbox (Codex on Windows runs commands as a separate sandbox user), '
+               'arda has to run outside it: ask the user for approval to do that.' if system.WINDOWS else '')
+    raise UsageError(f'cannot find herdr in {", ".join(HERDR_PLACES)}; ARDA does not take it from '
+                     f'HERDR_BIN_PATH or PATH, which whoever runs it can set.{sandbox}')
 
 
 def main(argv=None):

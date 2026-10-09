@@ -1,10 +1,12 @@
 import json
+import os
 import time
 from pathlib import Path
 from unittest import mock
 
 from test_cli import CliCase, agent
 
+from arda import system
 from arda.envelope import parse
 
 
@@ -195,11 +197,15 @@ class PlacesTests(CliCase):
             self.assertEqual(self.run_cli('send', '@helper', '--', 'hi')[0], 1)  # strict: slow could not answer
         pid = int(marker.read_text())
         for _ in range(30):
-            try:
-                if Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[0] == 'Z':
-                    break  # killed, waiting to be reaped
-            except FileNotFoundError:
-                break
+            if os.name == 'nt':
+                if system.name(pid) is None:
+                    break
+            else:
+                try:
+                    if Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[0] == 'Z':
+                        break  # killed, waiting to be reaped
+                except FileNotFoundError:
+                    break
             time.sleep(0.1)
         else:
             self.fail(f'process {pid} started by the timed-out herdr is still running')

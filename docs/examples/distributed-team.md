@@ -1,8 +1,8 @@
 # Example: a distributed team
 
-> **ILLUSTRATIVE, with parts VERIFIED and EXPERIMENTAL.** A team of agents with different
-> roles, spread over several machines in one Herdr environment. The table at the end says
-> exactly what has been run and what has not.
+> **ILLUSTRATIVE workflow using VERIFIED capabilities.** A team of agents with different
+> roles, spread over several machines in one Herdr environment. The table at the end
+> distinguishes verified support from this example's particular team.
 
 ## The team
 
@@ -73,37 +73,35 @@ another machine.
 | Part | Status | Evidence |
 | --- | --- | --- |
 | Claude Code and Codex agents handing work to each other | VERIFIED | Live in one Herdr session ([team workflow](team-workflow.md)) |
-| A chain of agents across saved machines | EXPERIMENTAL | Real Herdr servers and real Claude Code and Codex agents, on one host with SSH simulated; not yet between physical machines |
-| A local-model agent | Not tested | It must be an agent Herdr can detect and prompt |
+| Agents in other Herdr sessions on the same machine | VERIFIED | Live verification by the maintainer |
+| A chain of agents across saved machines | VERIFIED | Live verification by the maintainer across physical machines |
+| Other agents Herdr can prompt, including OpenCode and Gemini | VERIFIED | Live verification by the maintainer |
+| Agents in sandboxed or cloud runtimes | VERIFIED | Live verification by the maintainer with Herdr able to reach the agents |
+| This example's local-model analyst | ILLUSTRATIVE | The selected agent must be one Herdr can detect and prompt |
 | This exact four-machine team | ILLUSTRATIVE | Not run as shown |
 
 Setup for several machines: [multi-machine guide](../guides/multi-machine.md).
 
-## Where ARDA is going: sandboxed runtimes
+## Sandboxed and cloud runtimes
 
-**FUTURE.** ARDA has no integration with sandboxed agent runtimes today.
+**VERIFIED.** The maintainer has verified agents in sandboxed and cloud runtimes
+participating through Herdr.
 
-[NVIDIA OpenShell](https://docs.nvidia.com/openshell/latest/) is an example of another kind
-of place agents can run. Its documentation describes it as "the safe, private runtime for
-fleets of autonomous AI agents" and lists running "Claude Code, OpenCode, Codex, or GitHub
-Copilot CLI with constrained file and network access." Its
-[architecture](https://docs.nvidia.com/openshell/about/architecture) has a gateway that is
-its control plane, and its [sandbox runtimes](https://docs.nvidia.com/openshell/latest/how-it-works/sandboxes/runtimes)
-include Docker, Podman, MicroVM and Kubernetes, the last for "shared clusters, remote
-compute, and GPU scheduling."
+Runtimes such as [NVIDIA OpenShell](https://docs.nvidia.com/openshell/latest/) are another
+place an agent can run. ARDA uses Herdr's discovery and routing to reach the agent.
 
 ```mermaid
 flowchart LR
-    subgraph TODAY["Today: Herdr environment"]
+    subgraph TEAM["Herdr environment"]
         I["@implementer<br/>laptop"] <-->|ARDA| R["@reviewer<br/>desktop"]
     end
-    subgraph LATER["Future, not built: sandboxed runtime"]
+    subgraph RUNTIME["Sandboxed or cloud runtime"]
         X["specialist agent<br/>in a sandbox on a GPU cluster"]
     end
-    TODAY -. "would need Herdr to reach the sandbox,<br/>and the sandbox to allow it" .-> LATER
+    TEAM <-->|"Herdr routing allowed by the runtime"| RUNTIME
 ```
 
-For such an agent to join an ARDA team, Herdr would have to reach it, and the sandbox's
-network policy would have to allow ARDA's path (the agent runs `arda`, which calls
-`herdr`, which may use SSH). Neither has been built or tested. ARDA's rule stays the same:
-an agent can take part once Herdr can reach it.
+Herdr must be able to reach the agent, and the runtime's process and network policies
+must allow ARDA's path: the agent runs `arda`, which calls `herdr`, which may use SSH.
+Configure those permissions for the runtime in use. ARDA requires no runtime-specific
+adapter.

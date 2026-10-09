@@ -24,12 +24,15 @@ ruff check arda tests
 | Rule | Why |
 | --- | --- |
 | Tests never reach a real Herdr server | They drive the CLI against `tests/fake_herdr.py`; `tests/isolation.py` removes `HERDR_*` variables first. A test that typed into a real agent would message a live agent. |
-| Python standard library only | ARDA has no dependencies, so it runs wherever Herdr and `python3` do. |
-| Python 3.11 or later, Linux | The supported platform. |
+| Python standard library only | ARDA's runtime uses no third-party Python packages. |
+| Python 3.11 or later, Linux or Windows | The supported platforms. Windows setup uses pip's bundled launcher; ARDA itself uses the standard library. |
 | No state | ARDA keeps no files, queue or service; it asks Herdr every time. |
 
 Live behavior is verified separately, in named Herdr sessions with real Claude Code and
 Codex agents.
+
+For Windows development, see the [Windows guide](guides/windows.md) and run the suite
+with `python -X utf8 -m unittest discover -s tests -v`.
 
 ## Changes
 

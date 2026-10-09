@@ -6,8 +6,9 @@ One [Herdr](https://herdr.dev) plugin to connect coding agents across tools, ses
 herdr plugin install Nirvaan05/arda
 ```
 
-Linux, Python 3.11+, Herdr 0.9.3+. Install on each participating machine;
-see [Getting started](docs/getting-started.md#2-install-arda) for PATH setup.
+Linux or Windows, Python 3.11+, Herdr 0.9.3+. Install on each participating machine;
+see [Getting started](docs/getting-started.md#2-install-arda) for PATH setup, and
+[Windows](docs/guides/windows.md) for Windows.
 
 ## Get started
 
@@ -40,7 +41,7 @@ What approval changes: [Trust and consent](docs/guides/trust-and-consent.md).
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](docs/getting-started.md#requirements)
 [![Herdr 0.9.3+](https://img.shields.io/badge/herdr-0.9.3%2B-blueviolet)](https://herdr.dev)
 [![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen)](docs/architecture.md#requirements)
-![Platform: Linux](https://img.shields.io/badge/platform-linux-lightgrey)
+![Platform: Linux | Windows](https://img.shields.io/badge/platform-linux%20%7C%20windows-lightgrey)
 
 ![ARDA: one Herdr environment holds a team of agents with different roles (implementer, reviewer, tester, analyst, security), connected by ARDA, above shared resources: a laptop, a desktop and a GPU workstation.](docs/assets/arda-overview.png)
 
@@ -135,13 +136,16 @@ convenience layer, not a security boundary.
 | --- | --- |
 | Claude Code and Codex agents in one Herdr session hand work to each other | **VERIFIED** |
 | Reply addresses follow an agent across renames (with Herdr's integrations) | **VERIFIED** |
+| Native Windows: Claude Code and Codex in one Herdr session | **VERIFIED** |
 | Agents describe themselves; `--model auto` reads the exact model | **VERIFIED** |
-| Agents in other Herdr sessions on the same machine | **EXPERIMENTAL** |
-| Agents on machines saved in Herdr | **EXPERIMENTAL**: real servers and agents on one host, SSH simulated |
-| Other agents Herdr can prompt (OpenCode, Gemini, …) | **EXPERIMENTAL**: not tested |
-| Agents in sandboxed or cloud runtimes (such as NVIDIA OpenShell) | **FUTURE** |
+| Agents in other Herdr sessions on the same machine | **VERIFIED** |
+| Agents on machines saved in Herdr | **VERIFIED** |
+| Other agents Herdr can prompt (OpenCode, Gemini, …) | **VERIFIED** |
+| Agents in sandboxed or cloud runtimes (such as NVIDIA OpenShell) | **VERIFIED** |
 
-Labels: [definitions](docs/README.md#status-labels).
+These capabilities have been verified live by the maintainer. Sandboxed and cloud
+agents participate through Herdr, with the runtime configured to allow ARDA's commands
+and connections. Labels: [definitions](docs/README.md#status-labels).
 
 ## Documentation
 
@@ -151,6 +155,7 @@ Labels: [definitions](docs/README.md#status-labels).
 | See how it fits inside Herdr | [Architecture](docs/architecture.md) |
 | Install it and hand over a first task | [Getting started](docs/getting-started.md) |
 | Set up Claude Code or Codex | [Claude Code](docs/guides/claude-code.md), [Codex](docs/guides/codex.md) |
+| Run it on Windows | [Windows](docs/guides/windows.md) |
 | Connect agents on other machines | [Multi-machine](docs/guides/multi-machine.md) |
 | Know the exact message format and delivery rules | [Protocol](docs/protocol.md) |
 | Look up a command | [CLI reference](docs/reference/cli.md) |
