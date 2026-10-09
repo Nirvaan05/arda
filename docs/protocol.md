@@ -147,10 +147,36 @@ saying so, not with a `reject`. A receiver that hands part of the work to anothe
 tells the requester with a `note re=<id>` and still owes the `result`. Follow-ups about a
 task go to the address its `ack` came from.
 
-**Relation to A2A.** These messages cover the core of the task lifecycle in Google's
-Agent2Agent protocol, carried by terminal prompts instead of HTTP servers and task stores:
+## Relationship to A2A
 
-| A2A task state | ARDA |
+**Current boundary:** `arda/1` is ARDA's own terminal-message protocol. The released
+Herdr plugin is not an A2A-compliant client, server or custom binding. Its implemented
+handoff conventions share concepts with [Agent2Agent (A2A) 1.0](https://a2a-protocol.org/v1.0.0/);
+they do not implement the standard's operations or data model.
+
+The [A2A specification](https://a2a-protocol.org/v1.0.0/specification/) separates protocol
+operations, data models and bindings. The comparison below describes the code in this
+repository, not a compatibility claim:
+
+| Area | Released ARDA implementation | Not implemented |
+| --- | --- | --- |
+| Discovery | [`topology.py`](../arda/topology.py) asks Herdr for sessions, saved machines and agents; descriptions are pane metadata. | A2A Agent Card publication or consumption, advertised interfaces and capabilities. |
+| Data | [`envelope.py`](../arda/envelope.py) defines `type`, `sender`, `recipient`, text `body`, `id` and reply reference `re`. | Canonical A2A Task, Message, Part and Artifact representations. |
+| Task operations | [`cli.py`](../arda/cli.py) sends requests and replies; agents interpret them. There is no authoritative task-state store. | A2A SendMessage, GetTask, ListTasks or CancelTask operations. A stop request is a note, not a cancellation API. |
+| Bindings | [`herdr.py`](../arda/herdr.py) runs Herdr's CLI and submits terminal prompts. `--json` formats CLI output. | A2A JSON-RPC, gRPC or HTTP+JSON/REST endpoints, or a conformant custom binding. |
+| Updates | Each reply is another prompt. ARDA maintains no stream or subscription. | A2A streaming events, task subscriptions and push-notification configuration. |
+| Security and negotiation | Caller process checks and harness approval rules help prevent mistakes; message senders are not authenticated. | A2A security-scheme declarations, protocol-version negotiation and capability negotiation. |
+
+A2A permits [custom bindings](https://a2a-protocol.org/v1.0.0/topics/custom-protocol-bindings/),
+but changing the transport alone is insufficient: operations, data and behavior must
+preserve the standard's requirements, and the interface must be declared in an Agent
+Card. Herdr prompting has no such mapping or declaration here. The repository tests
+exercise `arda/1` against fake Herdr, not A2A interoperability or conformance.
+
+**Conceptual analogy only:** the following is a guide to the intent of handoff messages,
+not a translation layer or a list of A2A states implemented by ARDA.
+
+| A2A lifecycle concept | Rough ARDA convention |
 | --- | --- |
 | submitted | `task_request` delivered or submitted |
 | working | `ack` |
@@ -159,6 +185,12 @@ Agent2Agent protocol, carried by terminal prompts instead of HTTP servers and ta
 | rejected | `reject`: will not |
 | failed | `reject`: could not |
 | canceled | `note re=<id>` asking to stop, confirmed by `reject` |
+
+**FUTURE:** reusable integrations aligned with the A2A model, beginning with the planned
+[Orca integration](https://github.com/stablyai/orca). An A2A implementation still needs
+the missing protocol surface above and verification against independent implementations.
+Orca support and a Herdr-to-Orca bridge are not present. A closed-source system would
+need a supported interface, endpoint or adapter; access to its internals is not assumed.
 
 ## Wire format
 
@@ -197,7 +229,7 @@ pane with `herdr agent prompt`. It reports only what Herdr can show:
 
 | Status | Meaning |
 | --- | --- |
-| `delivered` | The receiver was ready, and Herdr saw it working after the text was submitted. |
+| `delivered` | The receiver was ready, and Herdr saw it working or reacting with an approval or question prompt after submission. |
 | `submitted` | The receiver was busy. Its harness takes queued input at its next step (Claude Code and Codex both do). |
 | `uncertain` | The text may have been submitted, but Herdr could not confirm that the receiver started (stalled, timed out, or the connection to a saved machine broke after the text was sent). It may still act on it. Do not resend blindly. |
 | `not_delivered` | Nothing was typed: no such agent, an ambiguous name, a fingerprint that no longer matches, an unreachable place, the agent is blocked at an approval or question prompt, Herdr cannot classify its state (override with `--force`), or, for introductions only, the agent is busy. |
@@ -249,7 +281,8 @@ receiver should treat a message as a request from another agent, not as an instr
 from its user, and act on it only as far as its user allows it to work with peers.
 
 Claude Code enforces this itself: it asks its user before acting on a peer's task, and its
-auto mode blocks such work. A user grants a standing approval once with `arda-trust`, a
+auto mode blocks such work. A user grants standing approval with `arda-trust`, a
 separate command that the approval itself never covers, which records it in each agent
-harness's own configuration (see [trust and consent](guides/trust-and-consent.md)). ARDA
-keeps no record of its own.
+harness's own configuration. This applies to the selected Claude Code and Codex profiles;
+it does not override their permissions for the requested work or configure other harnesses.
+See [trust and consent](guides/trust-and-consent.md).

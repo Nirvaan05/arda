@@ -26,8 +26,17 @@ flowchart LR
 | `$CODEX_HOME/AGENTS.md` | A marked section with the same rules for Codex | `arda-trust --revoke --yes` |
 | `$CODEX_HOME/rules/arda.rules` | Lets the `arda` command, and nothing else, run outside Codex's sandbox; forbids `arda-trust` | `arda-trust --revoke --yes` |
 | Herdr's Claude Code and Codex integrations | `herdr integration install claude` / `codex`: a `SessionStart` hook that reports each agent's conversation to Herdr (Codex also gets `[features] hooks = true`). Skip with `--no-integrations` | `herdr integration uninstall claude` / `codex` (revoke leaves them; they are Herdr's) |
+| Windows plugin `bin/arda.exe` | A local launcher using the Python that ran `arda-trust.py` | Revocation keeps the launcher; see the [Windows guide](windows.md) |
 
-Nothing else changes. ARDA runs no service and keeps no files of its own.
+Approval applies to the selected Claude Code and Codex profiles, not automatically to
+other harnesses. Codex uses `AGENTS.override.md` when it exists and is nonempty, so ARDA
+writes its marked section there instead of `AGENTS.md`. On Windows, Codex can still need
+separate approval to run outside its sandbox; see the [Windows guide](windows.md).
+
+ARDA runs no service or message database. It collects no telemetry or user data of its
+own. Message text passes through Herdr, over SSH for saved machines, and into receiving
+agents. Host logs, agent conversations, tools and model providers can transmit or retain
+the content. This is not an environment-wide privacy guarantee.
 
 | Command | Effect |
 | --- | --- |
@@ -58,7 +67,7 @@ run inside an agent's pane.
   asking you, and Codex may run `arda` outside its sandbox. A trusted agent can send
   whatever it can read to any agent in your Herdr environment, including on other machines.
   Each harness's own permission prompts and sandbox still govern what the receiver does.
-- **Approve-once is not oversight.** A peer's request can lead to edits or commands nobody
+- **Standing approval is not oversight.** A peer's request can lead to edits or commands nobody
   watched. Grant trust only where every agent may work for every other.
 - **The approval covers `arda`, and `arda` cannot change it.** Only `arda-trust` changes
   trust. It refuses to run under another name or from an agent's pane, both commands run
@@ -67,9 +76,10 @@ run inside an agent's pane.
   it. These are guards, not a boundary: Claude Code documents its Bash deny rules as not a
   security boundary, and any process running as you that can reach Herdr can type into a
   pane. Codex's sandbox is the strongest of them.
-- **`--file` reads only visible files** from the working directory or /tmp, checked on the
-  file it opened. That keeps accidents small but is not a boundary against a determined
-  agent.
+- **`--file` reads only visible files** from the working directory or the allowed temporary
+  directory (`/tmp` on Linux, the user's default `AppData\Local\Temp` on Windows), checked
+  on the file it opened. That keeps accidents small but is not a boundary against a
+  determined agent.
 - **Self-descriptions are claims.** Any process that can use the Herdr session can set
   them; `arda peers` marks them as not verified.
 - **Delivery is at most once,** with no retry, queue, replay protection or completion

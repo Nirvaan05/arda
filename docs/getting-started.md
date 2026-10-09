@@ -1,6 +1,6 @@
 # Getting started
 
-> **From nothing to a first handoff** between two agents in about ten minutes. Every
+> **From installation to a first handoff** between two agents in Herdr. Every
 > command here is the real command; nothing is shortened.
 
 The shell commands below use Linux syntax. On Windows, follow the
@@ -11,7 +11,7 @@ setup, then use the same ARDA messaging commands.
 | --- | --- | --- |
 | 1 | Install Herdr | see [herdr.dev](https://herdr.dev) |
 | 2 | Install ARDA | `herdr plugin install Nirvaan05/arda` |
-| 3 | Approve once, yourself | `arda-trust --yes` |
+| 3 | Approve ARDA yourself | `arda-trust --yes` |
 | 4 | Start agents named by role | `herdr agent start reviewer --kind codex --pane <pane> -- --no-daemon` |
 | 5 | Introduce them | `herdr plugin action invoke introduce --plugin arda` |
 | 6 | Hand over a task | an agent runs `arda task @reviewer -- '…'` |
@@ -40,14 +40,17 @@ Install the plugin and put `arda` and `arda-trust` on your PATH:
 
 ```sh
 herdr plugin install Nirvaan05/arda
-root=$(herdr plugin list --plugin arda --json |
+plugin_root=$(herdr plugin list --plugin arda --json |
   python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["plugins"][0]["plugin_root"])')
-ln -s "$root/bin/arda" "$root/bin/arda-trust" ~/.local/bin/
+mkdir -p "$HOME/.local/bin"
+ln -s "$plugin_root/bin/arda" "$plugin_root/bin/arda-trust" "$HOME/.local/bin/"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Do this on every machine whose agents should take part.
+Do this on every machine whose agents should take part. Keep `~/.local/bin` on your PATH
+in future sessions; keep existing links if they already point to this installation.
 
-## 3. Approve ARDA once
+## 3. Approve ARDA yourself
 
 Agents need your approval to act on each other's messages. Run this **yourself, in a plain
 terminal or a plain shell pane in Herdr**, not inside an agent's pane:
@@ -59,6 +62,9 @@ arda-trust --yes    # applies it
 
 It also installs Herdr's Claude Code and Codex integrations, which give each agent a reply
 address that survives renames. To check the setup at any time: `arda setup`.
+
+Approval applies to the selected Claude Code and Codex profiles. Their permission
+controls still apply to requested work; other harnesses need their own configuration.
 
 What this changes, and why it must be run by you: [trust and consent](guides/trust-and-consent.md).
 

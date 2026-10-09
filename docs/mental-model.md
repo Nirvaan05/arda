@@ -1,7 +1,36 @@
 # Mental model
 
-> **Why ARDA exists.** Different agents, with different capabilities, running on
-> distributed resources, working as one team inside one Herdr environment.
+> **Why ARDA exists.** Make interoperability practical for the agents people already
+> use. Herdr is the shipped integration, Orca is next, and broader A2A interoperability
+> is the long-term direction.
+
+People use different agents for research, planning, writing, design, business operations,
+development and execution. Connecting their complementary capabilities should be a
+reusable integration, not another project for every pair of tools.
+
+The human sets goals, boundaries and decisions. Agents are the workers; machines and
+runtimes are resources. Existing environments host those agents. ARDA adds the
+communication convention instead of taking over their execution or choosing their models.
+
+## A2A is the direction; Herdr is the current implementation
+
+The [A2A open standard](https://a2a-protocol.org/v1.0.0/) lets independently implemented
+agents communicate without exposing their internal tools, memory or proprietary logic.
+ARDA aims to make that model installable in systems people already use. Closed-source
+products still need a supported interface or adapter.
+
+- **Shipped and VERIFIED:** the Herdr plugin uses `arda/1` messages and Herdr's discovery
+  and prompting. The [support table](../README.md#current-support-and-limitations) states
+  its tested scope.
+- **Next, FUTURE:** integrate [Orca](https://github.com/stablyai/orca), another system the
+  creator already uses. There is no Orca adapter or Herdr-to-Orca bridge yet.
+- **Long-term, FUTURE:** learn from more integrations and work toward broader
+  interoperability through an installable implementation of the A2A model.
+
+Today's task conventions are conceptually related to A2A, but the code does not implement
+its data models, discovery documents, operations or bindings. See the
+[implementation comparison](protocol.md#relationship-to-a2a). The diagrams below explain
+the current Herdr integration and illustrative teams, not universal connectivity.
 
 ## The shift: resources organized around work
 
@@ -69,7 +98,7 @@ flowchart LR
   the machine they sit on. Give each piece of work to the agent it fits, not to the
   strongest agent every time.
 - **The agent holding the task decides whom to ask.** It has the context. ARDA does not
-  route, rank or pick agents; it only lets them reach each other.
+  rank models or assign work; it only lets agents reach each other.
 - **Name agents by role** (`@reviewer`, `@tester`), so whatever agent fills a role can
   change without changing how the team works. Agents can also say what they do
   (`arda describe`), and `arda peers` shows it.
@@ -119,15 +148,16 @@ Which machine an agent runs on is routing detail, handled by Herdr.
 
 ## Compared with other approaches
 
-| | ARDA | Relaying by hand | Plain `herdr agent prompt` | Mailbox tools (e.g. MCP Agent Mail) | A2A |
-| --- | --- | --- | --- | --- | --- |
-| Extra server, daemon or database | None | None | None | A message store; some run an HTTP server | An HTTP server per agent |
-| Finds agents by name across Herdr sessions and saved machines | Yes | You do it | One Herdr server at a time | Within their own registry | Through Agent Cards and URLs |
-| Task, ack, result convention | Yes | You do it | No | Messages and threads | Yes, with task states |
-| Works with the Claude Code and Codex you already run in Herdr | Yes | Yes | Yes | Through MCP tools or hooks | Needs an A2A server around each agent |
-| Durable message history | No; agents keep their own context | No | No | Yes | Depends on the server |
+| | Released ARDA | Relaying by hand | Plain `herdr agent prompt` |
+| --- | --- | --- | --- |
+| Extra message service to operate | None | None | None |
+| Finds agents by name across Herdr sessions and saved machines | Yes | You do it | One Herdr server at a time |
+| Task, ack, result convention | Yes | You do it | No |
+| Uses the Claude Code and Codex you already run in Herdr | Yes | Yes | Yes |
+| Durable message history maintained by this layer | No; agents keep their own context | No | No |
 
-ARDA's message types map onto A2A's task states; see [relation to A2A](protocol.md#handing-over-work).
+A2A is a communication standard rather than a directly interchangeable product. ARDA's
+message conventions are not an A2A implementation; see [the comparison](protocol.md#relationship-to-a2a).
 
 ## Next
 

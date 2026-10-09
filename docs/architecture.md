@@ -1,7 +1,11 @@
 # Architecture
 
 > **How ARDA fits inside Herdr.** Herdr runs the environment. ARDA is a short-lived command
-> that agents run to reach each other through it. ARDA keeps no state.
+> that agents run to reach each other through it. ARDA keeps no persistent message state.
+
+This is the shipped Herdr integration. Orca is planned; broader A2A interoperability is
+future work. See the [protocol comparison](protocol.md#relationship-to-a2a) for the gap
+between ARDA's current prompt transport and A2A.
 
 ## Who does what
 
@@ -61,7 +65,8 @@ flowchart LR
 
 ## What ARDA keeps
 
-Nothing. Every send asks Herdr again.
+ARDA keeps no message database, queue or task history. Every send asks Herdr again.
+Setup does write local configuration and, on Windows, a launcher:
 
 | Information | Where it lives |
 | --- | --- |
@@ -69,13 +74,20 @@ Nothing. Every send asks Herdr again.
 | A task's history and outcome | The agents' own conversations, and the project (commits, files) |
 | Self-descriptions (role, tools, model) | Herdr pane metadata, lost when the Herdr server restarts |
 | The user's approval | Each harness's own configuration, written by `arda-trust` |
+| The Windows `arda` command | `bin/arda.exe`, generated locally by `arda-trust.py` |
+
+ARDA itself collects no telemetry or user data and has no hosted collection API. It
+processes supplied message text and reads local session logs for optional model detection.
+Herdr carries the prompts, including over SSH to saved machines. Receiving harnesses,
+their tools and model providers may transmit or store the content. Their policies and
+permissions remain separate from ARDA's architecture.
 
 ## Code map
 
 | Path | What it does |
 | --- | --- |
 | [`bin/arda`](../bin/arda) | Entry point. Runs the plugin's code with the system `python3` in isolated mode, wherever it is linked from. |
-| [`bin/arda-trust`](../bin/arda-trust) | Separate entry point for the user's one-time approval. |
+| [`bin/arda-trust`](../bin/arda-trust) | Separate entry point for the user's harness approval. |
 | [`bin/arda-trust.py`](../bin/arda-trust.py) | Windows approval entry point. Also writes the local `bin/arda.exe` launcher. |
 | [`arda/cli.py`](../arda/cli.py) | Commands, identity of the caller, delivery, `peers` listing, `describe`. |
 | [`arda/envelope.py`](../arda/envelope.py) | Addresses, message types, wire format, text cleaning, native tokens. |

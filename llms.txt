@@ -1,8 +1,8 @@
 # ARDA
 
-> ARDA is a Herdr plugin that lets coding agents (Claude Code, Codex and others) in Herdr panes find each other by name and hand work to each other across Herdr sessions and saved machines. It is a short-lived Python command with no daemon, database or state; Herdr does discovery, routing and delivery.
+> ARDA works toward practical agent interoperability through installable integrations. The shipped Herdr plugin lets agents discover peers and exchange arda/1 messages across reachable sessions and saved machines. It is a short-lived Python command with no daemon or message database. Orca is the next planned integration; broader A2A interoperability is future work, not current compliance.
 
-Key facts: messages are note, task_request, ack, result and reject. Agents run `arda task @name -- 'text'` from their own pane and receive replies as new prompts starting with `[arda/1`. Delivery statuses are delivered, submitted, uncertain and not_delivered. Only the user runs `arda-trust`, the one-time approval.
+Key facts: messages are note, task_request, ack, result and reject. Agents run `arda task @name -- 'text'` from their own pane and receive replies as new prompts starting with `[arda/1`. Delivery statuses are delivered, submitted, uncertain and not_delivered. Only the user runs `arda-trust`, which records approval in selected Claude Code and Codex profiles.
 
 ## Docs
 
@@ -11,6 +11,7 @@ Key facts: messages are note, task_request, ack, result and reject. Agents run `
 - [Architecture](docs/architecture.md): what Herdr does, what ARDA does, the path of a message, code map
 - [Discovery and routing](docs/discovery.md): the environment, name resolution, replies across machines
 - [Protocol](docs/protocol.md): addresses, message types, handoff conventions, wire format, delivery, self-description
+- [A2A implementation boundary](docs/protocol.md#relationship-to-a2a): conceptual overlap and missing standard interfaces
 - [Getting started](docs/getting-started.md): install, approve, start agents, first task
 - [CLI reference](docs/reference/cli.md): commands, options, exit codes, JSON output
 
