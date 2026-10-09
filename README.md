@@ -12,7 +12,7 @@ work without making you relay every message. ARDA is working toward installable
 [Quick start](#quick-start) · [Current support](#current-support-and-limitations) ·
 [Protocol](docs/protocol.md)
 
-![ARDA's Herdr mental model: agents with different roles communicate through ARDA while laptops, desktops and GPU workstations provide execution resources.](docs/assets/arda-overview.png)
+https://github.com/user-attachments/assets/93d072d1-3f18-4a04-aee4-ef106bdc2a32
 
 ## The problem
 
